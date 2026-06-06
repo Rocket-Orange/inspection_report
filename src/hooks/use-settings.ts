@@ -327,12 +327,33 @@ export function useSettings() {
         );
       });
 
+      let globalInspectionPointCount = 0;
+      if (data.globalInspectionPoints !== undefined) {
+        await db.withTransactionAsync(async () => {
+          await db.runAsync('DELETE FROM global_inspection_points');
+          for (let i = 0; i < data.globalInspectionPoints!.length; i++) {
+            const gip = data.globalInspectionPoints![i];
+            await db.runAsync(
+              `INSERT INTO global_inspection_points
+               (key, label, visible, is_numeric, severity, group_name,
+                tolerance_type, tolerance_value, instructions, sort_order)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+              [gip.key, gip.label, gip.visible ? 1 : 0, gip.isNumeric ? 1 : 0,
+               gip.severity, gip.group ?? null, gip.toleranceType ?? null,
+               gip.toleranceValue ?? null, gip.instructions ?? null, i],
+            );
+          }
+        });
+        globalInspectionPointCount = data.globalInspectionPoints.length;
+      }
+
       await loadAll();
 
       return {
         productCount: data.products.length,
         columnCount: data.columnMeta.length,
         inspectionPointCount: uniqueTextsFrom(data.inspectionPoints),
+        globalInspectionPointCount,
         importDate,
       };
     } finally {
@@ -343,7 +364,7 @@ export function useSettings() {
   async function exportSettings() {
     setLoading(true);
     try {
-      await doExportSettings(columnConfigs, groups, globalInspectionPoints);
+      await doExportSettings(columnConfigs, groups);
     } finally {
       setLoading(false);
     }
@@ -377,19 +398,6 @@ export function useSettings() {
             await db.runAsync('UPDATE column_configs SET group_name=? WHERE key=?', [s.group, s.key]);
           }
         }
-
-        // Phase 4: Replace global inspection points
-        await db.runAsync('DELETE FROM global_inspection_points');
-        for (let i = 0; i < parsed.globalInspectionPoints.length; i++) {
-          const gip = parsed.globalInspectionPoints[i];
-          await db.runAsync(
-            `INSERT INTO global_inspection_points
-             (key,label,visible,is_numeric,severity,group_name,tolerance_type,tolerance_value,instructions,sort_order)
-             VALUES (?,?,?,?,?,?,?,?,?,?)`,
-            [gip.key, gip.label, gip.visible?1:0, gip.isNumeric?1:0, gip.severity,
-             gip.group ?? null, gip.toleranceType, gip.toleranceValue, gip.instructions, i],
-          );
-        }
       });
 
       await loadAll();
@@ -397,7 +405,6 @@ export function useSettings() {
         appliedCount: toApply.length,
         skippedCount,
         groupCount: parsed.groups.length,
-        globalInspectionPointCount: parsed.globalInspectionPoints.length,
       };
     } finally {
       setLoading(false);

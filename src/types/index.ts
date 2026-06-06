@@ -79,6 +79,7 @@ export interface ParsedExcelData {
   products: Product[];
   columnMeta: ColumnMeta[];
   inspectionPoints: ProductInspectionPoint[];
+  globalInspectionPoints?: ParsedColumnSetting[];
 }
 
 export interface ColumnMeta {
@@ -92,6 +93,7 @@ export interface ImportResult {
   productCount: number;
   columnCount: number;
   inspectionPointCount: number;
+  globalInspectionPointCount: number;
   importDate: string;
 }
 
@@ -110,12 +112,10 @@ export interface ParsedColumnSetting {
 export interface ParsedSettingsData {
   columnSettings: ParsedColumnSetting[];
   groups: string[];
-  globalInspectionPoints: ParsedColumnSetting[];
 }
 
 export interface SettingsImportResult {
   appliedCount: number;
   skippedCount: number;
   groupCount: number;
-  globalInspectionPointCount: number;
 }

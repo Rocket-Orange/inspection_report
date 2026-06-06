@@ -606,7 +606,11 @@ export default function SettingsScreen() {
       const imported = await importSpreadsheet(file.uri);
       Alert.alert(
         'Import successful',
-        `${imported.productCount} products, ${imported.columnCount} columns, ${imported.inspectionPointCount} inspection points imported.`,
+        `${imported.productCount} products, ${imported.columnCount} columns, ${imported.inspectionPointCount} inspection points` +
+          (imported.globalInspectionPointCount > 0
+            ? `, ${imported.globalInspectionPointCount} global inspection points`
+            : '') +
+          ' imported.',
       );
     } catch (err) {
       Alert.alert('Import failed', String(err));
@@ -637,7 +641,7 @@ export default function SettingsScreen() {
       const summary = await importSettings(file.uri);
       Alert.alert(
         'Settings imported',
-        `Applied to ${summary.appliedCount} columns, ${summary.groupCount} groups, ${summary.globalInspectionPointCount} global points.` +
+        `Applied to ${summary.appliedCount} columns, ${summary.groupCount} groups.` +
           (summary.skippedCount > 0 ? `\n${summary.skippedCount} unknown column(s) skipped.` : ''),
       );
     } catch (err) {

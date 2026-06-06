@@ -22,10 +22,9 @@ const CHAPTERS: Chapter[] = [
     body: `This app is used to carry out quality inspections. You fill in measurements, mark pass/fail results, attach photos and videos, and generate a PDF report to share.
 
 First-time setup:
-1. Go to Settings and tap Import Product Data (.xlsx) to load your product reference data.
+1. Go to Settings and tap Import Product Data (.xlsx) to load your product reference data, attribute columns, inspection points, and any Global Inspection Points defined in the file.
 2. Configure which columns are visible, their type, severity, and grouping.
-3. Add any Global Inspection Points that apply to every product.
-4. You are ready to start your first inspection.
+3. You are ready to start your first inspection.
 
 The app works fully offline. All data is stored on your device.`,
   },
@@ -112,7 +111,7 @@ Videos are never embedded in the PDF — they are always provided as separate fi
     title: '7 — Settings: Columns & Groups',
     subtitle: 'Configuring product info columns, groups, and import.',
     body: `Product Data
-• Import Product Data (.xlsx) — loads products, attribute columns, and inspection points from a spreadsheet. Re-importing updates existing products and preserves your column settings.
+• Import Product Data (.xlsx) — loads products, attribute columns, inspection points, and Global Inspection Points from the spreadsheet. Re-importing updates existing products and preserves your column settings. If the file contains a "Global Inspection Points" sheet, it replaces all existing global inspection points.
 
 Product Info Columns (visible after import)
 Each column from your spreadsheet can be configured:
@@ -135,11 +134,13 @@ Create named groups (e.g. "Dimensions", "Colour") to organise columns. Use the a
     title: '8 — Settings: Global Points & Saved Settings',
     subtitle: 'Global inspection points and settings file backup.',
     body: `Global Inspection Points
-Checklist items that appear for every product in every inspection. Add, configure, and reorder them the same way as product info columns. They support the same type / tolerance / severity / group / instructions options.
+Checklist items that appear for every product in every inspection. They are loaded from the Product Data spreadsheet (the "Global Inspection Points" sheet). Re-importing product data replaces all global inspection points with those in the file.
+
+You can still add, edit, and reorder them here between imports — but the next product data import will overwrite them. They support the same type / tolerance / severity / group / instructions options as product info columns.
 
 Settings File
-• Export Settings — saves your column configuration, groups, and global inspection points to an .xlsx file. Use this to back up your setup or move it to another device.
-• Import Settings — restores a previously exported configuration. Existing column settings are updated; existing global inspection points are replaced.`,
+• Export Settings — saves your column configuration and groups to an .xlsx file. Use this to back up your setup or move it to another device.
+• Import Settings — restores a previously exported configuration. Existing column settings are updated; groups are rebuilt.`,
   },
   {
     id: '9',

@@ -1,7 +1,7 @@
 import { File } from 'expo-file-system';
 import * as XLSX from 'xlsx';
 
-import type { ColumnMeta, ParsedExcelData, Product, ProductInspectionPoint } from '@/types';
+import type { ColumnMeta, ParsedColumnSetting, ParsedExcelData, Product, ProductInspectionPoint, Severity, ToleranceType } from '@/types';
 
 function generateColumnKey(label: string): string {
   return label.trim().toLowerCase().replace(/\s+/g, '_').replace(/[^a-z0-9_]/g, '');
@@ -85,7 +85,51 @@ export function parseExcel(base64: string): ParsedExcelData {
     }
   }
 
-  return { products, columnMeta, inspectionPoints };
+  const gipSheetName = workbook.SheetNames.find(
+    (n) => n.toLowerCase() === 'global inspection points',
+  );
+  let globalInspectionPoints: ParsedColumnSetting[] | undefined;
+  if (gipSheetName !== undefined) {
+    const gipSheet = workbook.Sheets[gipSheetName];
+    const gipRows = XLSX.utils.sheet_to_json<Record<string, string | number>>(gipSheet, { defval: '' });
+    globalInspectionPoints = [];
+    for (const row of gipRows) {
+      const label = String(row['Label'] ?? '').trim();
+      if (!label) continue;
+      const rawKey = String(row['Key'] ?? '').trim();
+      const key = rawKey || generateColumnKey(label);
+      if (!key) continue;
+      const isNumeric = String(row['Type']).trim().toLowerCase() === 'numeric';
+      const sevRaw = String(row['Criticality']).trim().toLowerCase();
+      const severity: Severity = (['high', 'medium', 'low'] as const).includes(sevRaw as Severity)
+        ? (sevRaw as Severity)
+        : 'medium';
+      let toleranceType: ToleranceType | null = null;
+      let toleranceValue: number | null = null;
+      if (isNumeric) {
+        const tolTypeRaw = String(row['Tolerance Type']).trim().toLowerCase();
+        if (tolTypeRaw === 'absolute') toleranceType = 'absolute';
+        else if (tolTypeRaw === 'percent') toleranceType = 'percent';
+        else if (tolTypeRaw === 'min') toleranceType = 'min';
+        else if (tolTypeRaw === 'max') toleranceType = 'max';
+        const tv = Number(row['Tolerance Value']);
+        if (isFinite(tv)) toleranceValue = tv;
+      }
+      globalInspectionPoints.push({
+        key,
+        label,
+        visible: String(row['Enabled']).trim().toLowerCase() === 'yes',
+        isNumeric,
+        severity,
+        group: String(row['Group'] ?? '').trim() || null,
+        toleranceType,
+        toleranceValue,
+        instructions: String(row['Instructions'] ?? '').trim() || null,
+      });
+    }
+  }
+
+  return { products, columnMeta, inspectionPoints, globalInspectionPoints };
 }
 
 export async function importSpreadsheet(fileUri: string): Promise<ParsedExcelData> {
