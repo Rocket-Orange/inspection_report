@@ -14,6 +14,7 @@ Inspectors visit production sites, log results against product reference data, a
 - **expo-sqlite v15** — local database only, fully offline, no cloud sync
 - **expo-file-system v17** — new API: use `File`, `Directory`, `Paths` classes (NOT the deprecated `readAsStringAsync` etc.)
 - **expo-image-manipulator v13** — used to resize photos before PDF embedding (see Gotcha #21)
+- **expo-media-library** — used to save photos/videos to device photo library from the Media tab
 - **React Compiler enabled** — do NOT add manual `useMemo`/`useCallback` unless profiling shows need
 - **TypeScript strict mode**
 
@@ -31,9 +32,11 @@ src/
       _layout.tsx            NativeTabs (tab bar UI)
       index.tsx              Inspections list screen
       settings.tsx           Settings screen (product info columns, groups, global inspection points, settings file import/export)
+      media.tsx              Media library — inspection folders with photo/video counts + thumbnails
+    instructions.tsx         In-app instructions page (9 collapsible chapters)
     inspection/
       _layout.tsx            Stack for inspection screens
-      new.tsx                Product selection + batch info (units, batch, prod %, pack %, supplier, location, invoice NO, inspector name, report type)
+      new.tsx                Product selection + batch info (units, batch, prod %, pack %, supplier, location, batch NO, inspector name, report type)
       [id]/
         _layout.tsx          Stack for per-inspection screens
         template.tsx         Inspection form (SectionList, collapsible products + groups + GIPs)
@@ -45,7 +48,7 @@ src/
       inspection-point-row.tsx  Pass/fail toggle (deselectable) + sample size + note + photo + video
       severity-badge.tsx     High/Medium/Low colored pill
       photo-thumbnail.tsx    Tappable photo preview with full-screen modal
-    app-tabs.tsx             NativeTabs triggers (Inspections + Settings)
+    app-tabs.tsx             NativeTabs triggers (Inspections + Settings + Media); icons use native sf/md symbols (no PNGs)
     themed-text.tsx          Theme-aware Text
     themed-view.tsx          Theme-aware View
   constants/
@@ -55,7 +58,7 @@ src/
     schema.ts                SQL DDL (all CREATE TABLE statements)
     migrations.ts            PRAGMA user_version migration runner (current version: 6)
   hooks/
-    use-inspections.ts       CRUD for inspections + results; includes deleteResult()
+    use-inspections.ts       CRUD for inspections + results; includes deleteResult(), useMediaFolders(), useInspectionQueries()
     use-products.ts          Product search + inspection point lookup
     use-settings.ts          Column configs, groups, global inspection points, settings import/export
   services/
@@ -66,6 +69,13 @@ src/
     video-service.ts         Video recording via expo-image-picker; saves to inspections/{id}/ directory
   types/
     index.ts                 All shared TypeScript interfaces
+  utils/
+    format-date.ts           Shared date formatter (iso → locale string, optional time)
+    inspection-title.ts      buildInspectionTitle() — "Supplier · BatchNo · ProductIDs"
+  app/
+    media/
+      _layout.tsx            Stack for media detail screens
+      [inspectionId].tsx     3-column photo/video grid with multi-select and download to library
 ```
 
 ---
@@ -73,7 +83,7 @@ src/
 ## Navigation Rules
 
 - Root layout is a **Stack** — inspection screens push on top of tabs (tab bar hides)
-- Tabs live in `(tabs)/` group — NativeTabs trigger names must match filenames: `"index"` and `"settings"`
+- Tabs live in `(tabs)/` group — NativeTabs trigger names must match filenames: `"index"`, `"settings"`, `"media"`
 - Non-tab navigation: always `router.push('/inspection/new')` or `router.push({ pathname: '/inspection/[id]/template', params: { id } })`
 - When navigating into tabs from outside: use `/(tabs)/` paths with `as any` cast (typed routes not yet aware of group)
 - **Home button (⌂)** is present on every non-tab screen header — navigates via `router.replace('/(tabs)/' as any)`; always add one when creating new inspection screens
@@ -112,7 +122,7 @@ Same schema as `column_configs` (key, label, visible, is_numeric, tolerance_type
 ### Key inspections fields
 | Column | Purpose |
 |--------|---------|
-| `invoice_no` | Optional invoice number entered when starting inspection (added v4) |
+| `invoice_no` | Batch number entered when starting inspection (shown as "Batch NO" in UI; DB column name unchanged, added v4) |
 | `inspector_name` | Optional inspector name entered when starting inspection (added v6) |
 | `report_type` | `'normal'` (one PDF per product) or `'nested'` (one combined PDF, added v6) |
 
@@ -168,8 +178,8 @@ Handled by `src/services/settings-export.ts`. Uses SheetJS to read/write a 4-she
 
 ## Inspection Flow
 
-0. `(tabs)/index.tsx` — Inspections list; each card shows a title line (`Supplier · InvoiceNo · ProductIDs`) above the product count/date line, built by `buildInspectionTitle(item)`
-1. `new.tsx` — select products, enter optional global fields (supplier, location, invoice NO, inspector name) + per-product units/batch/production%/packing%; when 2+ products selected shows **Normal / Nested** report type toggle → `createInspection()` → `router.replace` to `template`
+0. `(tabs)/index.tsx` — Inspections list; each card shows a title line (`Supplier · BatchNo · ProductIDs`) above the product count/date line, built by `buildInspectionTitle(item)` from `src/utils/inspection-title.ts`
+1. `new.tsx` — select products, enter optional global fields (supplier, location, batch NO, inspector name) + per-product units/batch/production%/packing%; when 2+ products selected shows **Normal / Nested** report type toggle → `createInspection()` → `router.replace` to `template`
 2. `template.tsx` — `SectionList` wrapped in `KeyboardAvoidingView`; per-product sections (collapsible via header chevron); attributes sub-grouped by named group (mixed with GIPs), then ungrouped "Global Inspection Points" sub-section, then "Inspection Points" sub-section; all sub-headers collapsible; auto-saves via `upsertResult()` with 400ms debounce on text, immediate on toggles; `flushPendingSaves()` called before Back/Home/Review navigation; deselecting pass/fail calls `deleteResult()` to restore N/A; each row supports photo + video capture
 3. `review.tsx` — summary + failures sorted by severity (attribute + GIP failures by severity, inspection points sorted last); "Complete" → `completeInspection()` → `router.replace` to `report`
 4. `report.tsx` — for **Normal** type: calls `generateProductReport()` per product with per-product tabs; for **Nested** type: calls `generateNestedReport()` once for all products combined; inspector name printed in all PDFs; photos section always starts on a new page; "↺ Regenerate PDF" and "✏ Edit" buttons in footer; videos are bundled with PDF in a ZIP via jszip when present; share via `expo-sharing`
@@ -287,18 +297,18 @@ Two modes controlled by `inspections.report_type`:
 
 ### Normal (per-product)
 - One PDF per product; multiple products show per-product tabs on the report screen
-- PDF saved to `Paths.document.uri + 'reports/{Supplier}_{InvoiceNo}_{ProductID}.pdf'`
+- PDF saved to `Paths.document.uri + 'reports/{Supplier}_{BatchNo}_{ProductID}.pdf'`
 
 ### Nested (combined, multi-product)
-- Single PDF for all products combined; saved to `Paths.document.uri + 'reports/{Supplier}_{InvoiceNo}_{ProductID1}-{ProductID2}.pdf'`
+- Single PDF for all products combined; saved to `Paths.document.uri + 'reports/{Supplier}_{BatchNo}_{ProductID1}-{ProductID2}.pdf'`
 - Attribute/GIP table uses `rowspan` on the attribute cell so each attribute row spans all N product sub-rows
 - Inspection points section lists per-product groups with a blue sub-header per product
-- Header shows: date, inspector, supplier, location, invoice NO; Products table; per-product summary stats
+- Header shows: date, inspector, supplier, location, batch NO; Products table; per-product summary stats
 
 ### Common to both
 - PDF filename built by `buildReportFilename(supplier, invoiceNo, productIds[])` in `pdf-generator.ts` — falls back to `NoSupplier`/`NoInvoice`/`NoProduct`; special characters stripped, spaces → underscores
 - Uses `expo-print` (`printToFileAsync`) → HTML string with inline CSS only
-- Header includes: inspector name (if set), supplier, location, invoice NO, production %, packing % (when set)
+- Header includes: inspector name (if set), supplier, location, batch NO, production %, packing % (when set)
 - Stats: Passed / Failed / Total Filled
 - **Failures by Criticality** summary table: High N, Medium N, Low N (attributes + GIPs combined), Inspection Points N
 - Detailed failures list: attribute + GIP failures grouped by severity, then inspection point failures flat
@@ -396,3 +406,7 @@ git push origin feature/pdf-improvements
 23. `createInspection()` in `use-inspections.ts` stores the **sum** of all products' `unitsInspected` and `batchSize` in the `inspections` table row — this is the value shown in the inspections list. Per-product values are stored correctly in `inspection_products` and used by the PDF generator.
 24. `canStart` in `new.tsx` validates units/batch with `parseInt(...) > 0` — this correctly rejects empty strings, zero, negatives, and non-numeric text (since `NaN > 0 === false`). Do not revert to a truthiness check (`!!u?.units`) which allows any non-empty string through.
 25. `shareBundle()` in `report.tsx` writes the ZIP using `FileHandle.writeBytes()` (not `File.write(Uint8Array)`). On Android, `File.write()` calls `FileChannel.write()` once without a loop and can silently truncate large files (>4 MB). `FileHandle.writeBytes()` loops until all bytes are written and is safe for any size.
+26. `useFocusEffect` with `useCallback`: always pass `[]` as deps when the callback only calls a `reload`/`load` function that closes over stable DB context and React state setters. Passing `[reload]` causes an infinite loop — `reload` is a new function reference each render, `useCallback` recreates, `useFocusEffect` re-fires, state update triggers re-render, repeat.
+27. `NativeTabs.Trigger.Icon` accepts `sf` (SF Symbols, iOS) and `md` (Material Symbols, Android) props directly — no PNG assets needed. Example: `<NativeTabs.Trigger.Icon sf="magnifyingglass" md="search" />`. Tab icons are automatically tinted to the active/inactive theme colour.
+28. `useInspectionQueries()` in `use-inspections.ts` exposes `getInspection(id)` and `getResults(id)` without triggering a full inspections list reload. Use it in screens that only need to read a single inspection (e.g. media detail) to avoid loading all inspections into memory.
+29. `expo-media-library.requestPermissionsAsync(true)` requests write-only permission (no `READ_MEDIA_AUDIO`). Calling it without `true` requests read permissions including audio, which requires an additional manifest entry and is unnecessary for gallery saves.

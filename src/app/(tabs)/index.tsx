@@ -7,24 +7,9 @@ import { ThemedView } from '@/components/themed-view';
 import { BottomTabInset, Spacing } from '@/constants/theme';
 import { useInspections } from '@/hooks/use-inspections';
 import { useTheme } from '@/hooks/use-theme';
+import { buildInspectionTitle } from '@/utils/inspection-title';
+import { formatDate } from '@/utils/format-date';
 import type { Inspection } from '@/types';
-
-function formatDate(iso: string): string {
-  return new Date(iso).toLocaleDateString(undefined, {
-    year: 'numeric',
-    month: 'short',
-    day: 'numeric',
-    hour: '2-digit',
-    minute: '2-digit',
-  });
-}
-
-function buildInspectionTitle(item: Inspection): string {
-  const supplier = item.supplier?.trim() || '—';
-  const invoiceNo = item.invoiceNo?.trim() || '—';
-  const ids = item.productIds.join(', ');
-  return `${supplier}  ·  ${invoiceNo}  ·  ${ids}`;
-}
 
 function StatusBadge({ status }: { status: Inspection['status'] }) {
   const color = status === 'completed' ? '#27ae60' : '#3c87f7';
@@ -75,7 +60,7 @@ function InspectionItem({
       <View style={styles.itemHeader}>
         <StatusBadge status={item.status} />
         <ThemedText type="small" themeColor="textSecondary">
-          {formatDate(item.date)}
+          {formatDate(item.date, true)}
         </ThemedText>
       </View>
       <ThemedText type="small" style={styles.title} numberOfLines={2}>

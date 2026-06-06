@@ -232,7 +232,7 @@ export default function NewInspectionScreen() {
             style={[styles.globalInput, { backgroundColor: theme.backgroundElement, color: theme.text }]}
             value={invoiceNo}
             onChangeText={setInvoiceNo}
-            placeholder="Invoice NO (optional)"
+            placeholder="Batch NO (optional)"
             placeholderTextColor={theme.textSecondary}
           />
           <TextInput

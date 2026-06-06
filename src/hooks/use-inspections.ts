@@ -3,6 +3,7 @@ import { useEffect, useState } from 'react';
 import { useSQLiteContext } from '@/db';
 import { deleteInspectionPhotos } from '@/services/photo-service';
 import type { Inspection, InspectionProduct, InspectionResult, InspectionStatus, PointType } from '@/types';
+import { buildInspectionTitle } from '@/utils/inspection-title';
 
 interface InspectionRow {
   id: string;
@@ -230,4 +231,110 @@ export function useInspections() {
     completeInspection,
     deleteInspection,
   };
+}
+
+export interface MediaFolder {
+  inspectionId: string;
+  title: string;
+  date: string;
+  photoCount: number;
+  videoCount: number;
+  thumbnailUri: string | null;
+}
+
+export function useMediaFolders() {
+  const db = useSQLiteContext();
+  const [folders, setFolders] = useState<MediaFolder[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    loadFolders();
+  }, []);
+
+  async function loadFolders() {
+    setLoading(true);
+    try {
+      const mediaRows = await db.getAllAsync<{ inspection_id: string; photo_uris: string; video_uris: string }>(
+        "SELECT inspection_id, photo_uris, video_uris FROM inspection_results WHERE photo_uris != '[]' OR video_uris != '[]'",
+      );
+
+      const mediaByInspection = new Map<string, { photoUris: string[]; videoUris: string[] }>();
+      for (const row of mediaRows) {
+        const photos: string[] = JSON.parse(row.photo_uris || '[]');
+        const videos: string[] = JSON.parse(row.video_uris || '[]');
+        if (photos.length === 0 && videos.length === 0) continue;
+        const existing = mediaByInspection.get(row.inspection_id);
+        if (existing) {
+          existing.photoUris.push(...photos);
+          existing.videoUris.push(...videos);
+        } else {
+          mediaByInspection.set(row.inspection_id, { photoUris: [...photos], videoUris: [...videos] });
+        }
+      }
+
+      if (mediaByInspection.size === 0) {
+        setFolders([]);
+        return;
+      }
+
+      const ids = Array.from(mediaByInspection.keys());
+      const placeholders = ids.map(() => '?').join(',');
+      const [inspectionRows, productRows] = await Promise.all([
+        db.getAllAsync<InspectionRow>(
+          `SELECT * FROM inspections WHERE id IN (${placeholders}) ORDER BY date DESC`,
+          ids,
+        ),
+        db.getAllAsync<{ inspection_id: string; product_id: string }>(
+          `SELECT inspection_id, product_id FROM inspection_products WHERE inspection_id IN (${placeholders})`,
+          ids,
+        ),
+      ]);
+
+      const productIdsByInspection = new Map<string, string[]>();
+      for (const r of productRows) {
+        const arr = productIdsByInspection.get(r.inspection_id);
+        if (arr) arr.push(r.product_id);
+        else productIdsByInspection.set(r.inspection_id, [r.product_id]);
+      }
+
+      const result: MediaFolder[] = [];
+      for (const row of inspectionRows) {
+        const productIds = productIdsByInspection.get(row.id) ?? [];
+        const inspection = mapRow(row, productIds);
+        const media = mediaByInspection.get(row.id)!;
+        result.push({
+          inspectionId: row.id,
+          title: buildInspectionTitle(inspection),
+          date: row.date,
+          photoCount: media.photoUris.length,
+          videoCount: media.videoUris.length,
+          thumbnailUri: media.photoUris[0] ?? null,
+        });
+      }
+
+      setFolders(result);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  return { folders, loading, reload: loadFolders };
+}
+
+export function useInspectionQueries() {
+  const db = useSQLiteContext();
+
+  async function getInspection(id: string): Promise<Inspection | null> {
+    const row = await db.getFirstAsync<InspectionRow>('SELECT * FROM inspections WHERE id = ?', [id]);
+    if (!row) return null;
+    const productIds = await loadProductIds(db, id);
+    return mapRow(row, productIds);
+  }
+
+  async function getResults(id: string): Promise<InspectionResult[]> {
+    const rows = await db.getAllAsync<ResultRow>('SELECT * FROM inspection_results WHERE inspection_id = ?', [id]);
+    return rows.map(mapResultRow);
+  }
+
+  return { getInspection, getResults };
 }

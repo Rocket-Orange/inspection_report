@@ -1,9 +1,11 @@
 import * as DocumentPicker from 'expo-document-picker';
+import { router } from 'expo-router';
 import React, { useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
   FlatList,
+  Pressable,
   ScrollView,
   StyleSheet,
   Switch,
@@ -650,6 +652,12 @@ export default function SettingsScreen() {
       </View>
 
       <ScrollView contentContainerStyle={{ paddingBottom: BottomTabInset + Spacing.three }}>
+        <Pressable
+          onPress={() => router.push('/instructions')}
+          style={[styles.instructionsRow, { borderBottomColor: theme.backgroundElement }]}>
+          <ThemedText style={styles.instructionsLink}>Instructions</ThemedText>
+          <ThemedText style={styles.instructionsChevron}>›</ThemedText>
+        </Pressable>
         <SectionHeader title="Product Data" />
         <View style={[styles.card, { backgroundColor: theme.backgroundElement }]}>
           <TouchableOpacity
@@ -791,4 +799,14 @@ const styles = StyleSheet.create({
   deleteGroupBtn: { padding: 4 },
   empty: { padding: Spacing.four, alignItems: 'center' },
   emptyText: { textAlign: 'center', lineHeight: 24 },
+  instructionsRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: Spacing.three,
+    paddingVertical: Spacing.three,
+    borderBottomWidth: 1,
+  },
+  instructionsLink: { color: '#3c87f7', fontWeight: '600', fontSize: 15 },
+  instructionsChevron: { fontSize: 20, opacity: 0.4 },
 });

@@ -363,7 +363,7 @@ export async function generateProductReport(options: ReportOptions): Promise<str
   const locationLine = inspection.location
     ? `Location: ${escapeHtml(inspection.location)} &nbsp;·&nbsp; ` : '';
   const invoiceNoLine = inspection.invoiceNo
-    ? `Invoice NO: ${escapeHtml(inspection.invoiceNo)} &nbsp;·&nbsp; ` : '';
+    ? `Batch NO: ${escapeHtml(inspection.invoiceNo)} &nbsp;·&nbsp; ` : '';
   const statusLine = (productUnits.productionStatus != null || productUnits.packingStatus != null)
     ? [
         productUnits.productionStatus != null ? `Production: ${productUnits.productionStatus}%` : null,
@@ -542,7 +542,7 @@ export async function generateNestedReport(options: NestedReportOptions): Promis
   const locationLine = inspection.location
     ? `Location: ${escapeHtml(inspection.location)} &nbsp;·&nbsp; ` : '';
   const invoiceNoLine = inspection.invoiceNo
-    ? `Invoice NO: ${escapeHtml(inspection.invoiceNo)} &nbsp;·&nbsp; ` : '';
+    ? `Batch NO: ${escapeHtml(inspection.invoiceNo)} &nbsp;·&nbsp; ` : '';
 
   // Products table
   let productsTableRows = '';

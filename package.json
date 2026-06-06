@@ -25,6 +25,7 @@
     "expo-image-manipulator": "~55.0.17",
     "expo-image-picker": "~55.0.20",
     "expo-linking": "~55.0.15",
+    "expo-media-library": "~55.0.17",
     "expo-print": "~55.0.15",
     "expo-router": "~55.0.14",
     "expo-sharing": "~55.0.19",
