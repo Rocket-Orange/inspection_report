@@ -50,6 +50,7 @@ export interface Inspection {
   invoiceNo?: string;
   inspectorName?: string;
   reportType?: 'normal' | 'nested';
+  headerPhotoUri?: string;
 }
 
 export interface InspectionProduct {
@@ -73,6 +74,7 @@ export interface InspectionResult {
   photoUris: string[];
   videoUris: string[];
   sampleSize?: string;
+  severityOverride?: Severity;
 }
 
 export interface ParsedExcelData {

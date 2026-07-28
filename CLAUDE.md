@@ -47,6 +47,7 @@ src/
       attribute-row.tsx      Dual-mode row: numeric input OR pass/fail toggle; sample size + note + photo + video + instructions modal
       inspection-point-row.tsx  Pass/fail toggle (deselectable) + sample size + note + photo + video
       severity-badge.tsx     High/Medium/Low colored pill
+      severity-picker.tsx    3-pill H/M/L picker (interactive; used on failing rows)
       photo-thumbnail.tsx    Tappable photo preview with full-screen modal
     app-tabs.tsx             NativeTabs triggers (Inspections + Settings + Media); icons use native sf/md symbols (no PNGs)
     themed-text.tsx          Theme-aware Text
@@ -72,6 +73,7 @@ src/
   utils/
     format-date.ts           Shared date formatter (iso → locale string, optional time)
     inspection-title.ts      buildInspectionTitle() — "Supplier · BatchNo · ProductIDs"
+    choose-source.ts         Shared action-sheet helper: camera vs gallery picker (Alert.alert wrapper)
   app/
     media/
       _layout.tsx            Stack for media detail screens
@@ -92,7 +94,7 @@ src/
 
 ## Database
 
-SQLite file: `inspection.db` — single local database, no sync. **Current schema version: 6.**
+SQLite file: `inspection.db` — single local database, no sync. **Current schema version: 8.**
 
 **Tables:** `products`, `column_configs`, `inspection_point_configs`, `product_inspection_points`, `inspections`, `inspection_products`, `inspection_results`, `app_meta`, `groups`, `global_inspection_points`
 
@@ -125,6 +127,7 @@ Same schema as `column_configs` (key, label, visible, is_numeric, tolerance_type
 | `invoice_no` | Batch number entered when starting inspection (shown as "Batch NO" in UI; DB column name unchanged, added v4) |
 | `inspector_name` | Optional inspector name entered when starting inspection (added v6) |
 | `report_type` | `'normal'` (one PDF per product) or `'nested'` (one combined PDF, added v6) |
+| `header_photo_uri` | Optional local URI of a cover photo shown in the PDF header (set only in the New Inspection screen; added v8) |
 
 ### Key inspection_results fields
 | Column | Purpose |
@@ -132,6 +135,7 @@ Same schema as `column_configs` (key, label, visible, is_numeric, tolerance_type
 | `sample_size` | Optional free-text sample size entered per result row (added v4) |
 | `type` | `'attribute'`, `'inspection_point'`, or `'global_inspection_point'` |
 | `video_uris` | JSON array of local video file URIs (added v5) |
+| `severity_override` | Optional per-result severity (`'high'`/`'medium'`/`'low'`) set by inspector on fail; `NULL` = use default from config (added v7) |
 
 ### point_key prefix conventions
 | Type | point_key format | Source table |
@@ -215,8 +219,10 @@ Paths.document.uri   // e.g. "file:///data/.../documents/"
 - **Low** → `#f39c12` (yellow)
 - Assigned per **Product info column** in Settings → `column_configs` table (`severity` field)
 - Also assigned per **Global inspection point** in Settings → `global_inspection_points` table (`severity` field)
-- **Inspection points do NOT have severity** — they are shown without a severity badge in the template, review screen, and PDF
-- PDF reports: "Failures by Criticality" summary table (High/Medium/Low counts combining attribute + GIP failures, + Inspection Points count), then detailed failure list grouped by severity
+- **Inspection points** have no default severity in Settings — they default to `medium` at inspection time. Inspectors can override via the picker like any other item.
+- **Per-inspection severity override** (added v7): when any item is failing (Fail toggle OR numeric out-of-tolerance), a `<SeverityPicker>` appears in the template row below the pass/fail row. The picked value is stored in `inspection_results.severity_override` for this inspection only — Settings defaults are untouched. When the row leaves fail state (toggled to Pass/N/A, cleared, or brought back into tolerance) the override is auto-cleared both in local component state (via `useEffect`) and in the parent's saved entry (see callbacks in `template.tsx` renderItem). Displayed value in the picker = `severityOverride ?? defaultSeverity`.
+- PDF/review sev resolver: use `resolveSeverity(r, defaultSev)` = `r.severityOverride ?? defaultSev ?? 'medium'`. Inspection point failures now fold into the H/M/L criticality summary and detail sections (there is no separate flat "Inspection Points" summary row).
+- PDF reports: "Failures by Criticality" summary table (H/M/L counts combining attribute + GIP + inspection point failures), then detailed failure list grouped by severity
 
 ---
 
@@ -306,6 +312,7 @@ Two modes controlled by `inspections.report_type`:
 - Header shows: date, inspector, supplier, location, batch NO; Products table; per-product summary stats
 
 ### Common to both
+- **Cover photo** (`inspection.headerPhotoUri`, added v8): if set at New Inspection time, `pdf-generator.ts` embeds it as an `<img>` block between the batch/meta section and the first pass/fail summary in both report modes (normal: right before the Passed/Failed/Total stat row; nested: right before the "Products Inspected" table). Base64-encoded via existing `photoToBase64()` (same resize/quality as row photos). Not editable after creation, not part of the numbered `Photo N` sequence, and not included in the ZIP media bundle.
 - PDF filename built by `buildReportFilename(supplier, invoiceNo, productIds[])` in `pdf-generator.ts` — falls back to `NoSupplier`/`NoInvoice`/`NoProduct`; special characters stripped, spaces → underscores
 - Uses `expo-print` (`printToFileAsync`) → HTML string with inline CSS only
 - Header includes: inspector name (if set), supplier, location, batch NO, production %, packing % (when set)
@@ -390,7 +397,7 @@ git push origin feature/pdf-improvements
 7. React Compiler is on — wrapping in `useCallback` without profiling evidence will conflict with compiler optimizations.
 8. `column_configs` sort order is set during Excel import; it is preserved on re-import (upsert updates `sort_order`). Do not use `ORDER BY label` anywhere — always `ORDER BY sort_order`.
 9. When a pass/fail toggle is deselected (returns to null), call `deleteResult()` rather than upserting with `passed=null` — the absence of a DB row is the N/A signal.
-10. Inspection point severity is intentionally not shown anywhere in the UI or PDF — do not re-introduce severity display for inspection points.
+10. Inspection points have no severity in Settings but ARE severity-classified at inspection time via `inspection_results.severity_override` (default `medium`); PDF summary and review screen fold IP failures into the H/M/L rows. Do NOT re-add a separate flat "Inspection Points" count row to the criticality summary.
 11. `point_key` prefixes are load-bearing: `attr:` for product info columns, `gip:` for global inspection points, `ip:` for inspection points. Never mix them up or strip prefixes when storing.
 12. `scheduleSave()` in `template.tsx` treats a sample size equal to the per-product default (from `units_inspected`) as non-input for the isEmpty check — so deselecting pass/fail on a row with only the default sample size correctly restores N/A. Only an *explicitly modified* sample size (different from the default) keeps the row filled.
 13. Before navigating away from `template.tsx` (Back, Home, Review), always call `await flushPendingSaves()` — it cancels all debounce timers and immediately writes pending results to DB. Skipping this can silently drop the last 400ms of edits.

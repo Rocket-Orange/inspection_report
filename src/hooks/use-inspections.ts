@@ -1,8 +1,8 @@
 import { useEffect, useState } from 'react';
 
 import { useSQLiteContext } from '@/db';
-import { deleteInspectionPhotos } from '@/services/photo-service';
-import type { Inspection, InspectionProduct, InspectionResult, InspectionStatus, PointType } from '@/types';
+import { deleteInspectionPhotos, saveHeaderPhoto } from '@/services/photo-service';
+import type { Inspection, InspectionProduct, InspectionResult, InspectionStatus, PointType, Severity } from '@/types';
 import { buildInspectionTitle } from '@/utils/inspection-title';
 
 interface InspectionRow {
@@ -16,6 +16,7 @@ interface InspectionRow {
   invoice_no: string | null;
   inspector_name: string | null;
   report_type: string;
+  header_photo_uri: string | null;
 }
 
 interface InspectionProductRow {
@@ -38,6 +39,7 @@ interface ResultRow {
   photo_uris: string;
   video_uris: string;
   sample_size: string | null;
+  severity_override: string | null;
 }
 
 function generateId(): string {
@@ -65,6 +67,7 @@ function mapRow(r: InspectionRow, productIds: string[]): Inspection {
     invoiceNo: r.invoice_no ?? undefined,
     inspectorName: r.inspector_name ?? undefined,
     reportType: (r.report_type as 'normal' | 'nested') ?? 'normal',
+    headerPhotoUri: r.header_photo_uri ?? undefined,
   };
 }
 
@@ -81,6 +84,7 @@ function mapResultRow(r: ResultRow): InspectionResult {
     photoUris: JSON.parse(r.photo_uris || '[]'),
     videoUris: JSON.parse(r.video_uris || '[]'),
     sampleSize: r.sample_size ?? undefined,
+    severityOverride: (r.severity_override as Severity | null) ?? undefined,
   };
 }
 
@@ -145,6 +149,7 @@ export function useInspections() {
     invoiceNo?: string;
     inspectorName?: string;
     reportType?: 'normal' | 'nested';
+    headerPhotoSourceUri?: string;
     productUnits: Map<string, { unitsInspected: number; batchSize: number; productionStatus?: number; packingStatus?: number }>;
   }): Promise<string> {
     const id = generateId();
@@ -164,6 +169,14 @@ export function useInspections() {
         );
       }
     });
+    if (data.headerPhotoSourceUri) {
+      try {
+        const savedUri = saveHeaderPhoto(id, data.headerPhotoSourceUri);
+        await db.runAsync('UPDATE inspections SET header_photo_uri = ? WHERE id = ?', [savedUri, id]);
+      } catch {
+        // If the header photo copy fails, keep the inspection anyway.
+      }
+    }
     await loadInspections();
     return id;
   }
@@ -172,15 +185,16 @@ export function useInspections() {
     const id = generateId();
     await db.runAsync(
       `INSERT INTO inspection_results
-         (id, inspection_id, product_id, point_key, type, value, passed, note, photo_uris, video_uris, sample_size)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+         (id, inspection_id, product_id, point_key, type, value, passed, note, photo_uris, video_uris, sample_size, severity_override)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
        ON CONFLICT(inspection_id, product_id, point_key) DO UPDATE SET
          value = excluded.value,
          passed = excluded.passed,
          note = excluded.note,
          photo_uris = excluded.photo_uris,
          video_uris = excluded.video_uris,
-         sample_size = excluded.sample_size`,
+         sample_size = excluded.sample_size,
+         severity_override = excluded.severity_override`,
       [
         id,
         result.inspectionId,
@@ -193,6 +207,7 @@ export function useInspections() {
         JSON.stringify(result.photoUris),
         JSON.stringify(result.videoUris),
         result.sampleSize ?? null,
+        result.severityOverride ?? null,
       ],
     );
   }

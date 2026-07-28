@@ -1,11 +1,13 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { Pressable, StyleSheet, TextInput, View } from 'react-native';
 
 import { Spacing } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
+import type { Severity } from '@/types';
 
 import { ThemedText } from '../themed-text';
 import { PhotoThumbnail } from './photo-thumbnail';
+import { SeverityPicker } from './severity-picker';
 
 interface Props {
   text: string;
@@ -13,11 +15,14 @@ interface Props {
   initialPassed: boolean | null;
   initialNote: string;
   initialSampleSize: string;
+  initialSeverityOverride: Severity | null;
+  defaultSeverity: Severity;
   photoUris: string[];
   videoUris: string[];
   onToggle: (passed: boolean | null) => void;
   onNoteChange: (note: string) => void;
   onSampleSizeChange: (sampleSize: string) => void;
+  onSeverityChange: (severity: Severity) => void;
   onAddPhoto: () => void;
   onRemovePhoto: (uri: string) => void;
   onAddVideo: () => void;
@@ -30,11 +35,14 @@ export function InspectionPointRow({
   initialPassed,
   initialNote,
   initialSampleSize,
+  initialSeverityOverride,
+  defaultSeverity,
   photoUris,
   videoUris,
   onToggle,
   onNoteChange,
   onSampleSizeChange,
+  onSeverityChange,
   onAddPhoto,
   onRemovePhoto,
   onAddVideo,
@@ -44,17 +52,29 @@ export function InspectionPointRow({
   const [passed, setPassed] = useState<boolean | null>(initialPassed);
   const [note, setNote] = useState(initialNote);
   const [sampleSize, setSampleSize] = useState(initialSampleSize);
+  const [severityOverride, setSeverityOverride] = useState<Severity | null>(initialSeverityOverride);
   const [showNote, setShowNote] = useState(!!initialNote);
 
   function handleToggle(value: boolean) {
     if (passed === value) {
       setPassed(null);
+      setSeverityOverride(null);
       onToggle(null);
     } else {
       setPassed(value);
+      if (value === true) setSeverityOverride(null);
       onToggle(value);
     }
   }
+
+  function handleSeverity(sev: Severity) {
+    setSeverityOverride(sev);
+    onSeverityChange(sev);
+  }
+
+  useEffect(() => {
+    if (passed !== false && severityOverride !== null) setSeverityOverride(null);
+  }, [passed, severityOverride]);
 
   function handleNote(text: string) {
     setNote(text);
@@ -134,6 +154,13 @@ export function InspectionPointRow({
           </View>
         </View>
       </View>
+
+      {passed === false && (
+        <SeverityPicker
+          value={severityOverride ?? defaultSeverity}
+          onChange={handleSeverity}
+        />
+      )}
 
       {showNote && (
         <TextInput

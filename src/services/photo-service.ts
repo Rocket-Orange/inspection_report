@@ -48,6 +48,43 @@ function savePhoto(sourceUri: string, inspectionId: string, pointKey: string): s
   return destFile.uri;
 }
 
+export async function captureHeaderPhotoUri(): Promise<string | null> {
+  const { status } = await ImagePicker.requestCameraPermissionsAsync();
+  if (status !== 'granted') return null;
+
+  const result = await ImagePicker.launchCameraAsync({
+    quality: 0.7,
+    allowsMultipleSelection: false,
+  });
+
+  if (result.canceled || !result.assets[0]) return null;
+  return result.assets[0].uri;
+}
+
+export async function pickHeaderPhotoUri(): Promise<string | null> {
+  const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+  if (status !== 'granted') return null;
+
+  const result = await ImagePicker.launchImageLibraryAsync({
+    quality: 0.7,
+    allowsMultipleSelection: false,
+    mediaTypes: 'images',
+  });
+
+  if (result.canceled || !result.assets[0]) return null;
+  return result.assets[0].uri;
+}
+
+export function saveHeaderPhoto(inspectionId: string, sourceUri: string): string {
+  const dirUri = inspectionPhotoDirUri(inspectionId);
+  new Directory(dirUri).create({ intermediates: true, idempotent: true });
+  const filename = `header_${Date.now()}.jpg`;
+  const destFile = new File(dirUri + filename);
+  if (destFile.exists) destFile.delete();
+  new File(sourceUri).copy(destFile);
+  return destFile.uri;
+}
+
 export function deleteInspectionPhotos(inspectionId: string): void {
   const dir = new Directory(inspectionPhotoDirUri(inspectionId));
   if (dir.exists) {

@@ -2,7 +2,6 @@ import { router, useLocalSearchParams } from 'expo-router';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
-  Alert,
   Keyboard,
   KeyboardAvoidingView,
   Platform,
@@ -23,6 +22,7 @@ import { useTheme } from '@/hooks/use-theme';
 import { pickPhoto, takePhoto } from '@/services/photo-service';
 import { pickVideo, recordVideo } from '@/services/video-service';
 import type { ColumnConfig, GlobalInspectionPoint, Group, Inspection, InspectionPointConfig, Product, ProductInspectionPoint, Severity, ToleranceType } from '@/types';
+import { chooseSource } from '@/utils/choose-source';
 
 interface AttributeItem {
   kind: 'attribute';
@@ -75,25 +75,7 @@ interface ResultEntry {
   sampleSize?: string;
   photoUris: string[];
   videoUris: string[];
-}
-
-function chooseSource(
-  title: string,
-  cameraLabel: string,
-  galleryLabel: string,
-): Promise<'camera' | 'gallery' | null> {
-  return new Promise((resolve) => {
-    Alert.alert(
-      title,
-      undefined,
-      [
-        { text: cameraLabel, onPress: () => resolve('camera') },
-        { text: galleryLabel, onPress: () => resolve('gallery') },
-        { text: 'Cancel', style: 'cancel', onPress: () => resolve(null) },
-      ],
-      { cancelable: true, onDismiss: () => resolve(null) },
-    );
-  });
+  severityOverride?: Severity | null;
 }
 
 async function loadTemplateData(db: ReturnType<typeof useSQLiteContext>, inspectionId: string) {
@@ -185,6 +167,7 @@ async function loadTemplateData(db: ReturnType<typeof useSQLiteContext>, inspect
   const resultRows = await db.getAllAsync<{
     product_id: string; point_key: string; type: string; value: string | null;
     passed: number; note: string | null; photo_uris: string; video_uris: string; sample_size: string | null;
+    severity_override: string | null;
   }>('SELECT * FROM inspection_results WHERE inspection_id = ?', [inspectionId]);
 
   const existingResults = new Map<string, ResultEntry>();
@@ -197,6 +180,7 @@ async function loadTemplateData(db: ReturnType<typeof useSQLiteContext>, inspect
       sampleSize: r.sample_size ?? undefined,
       photoUris: JSON.parse(r.photo_uris || '[]'),
       videoUris: JSON.parse(r.video_uris || '[]'),
+      severityOverride: (r.severity_override as Severity | null) ?? undefined,
     });
   }
 
@@ -466,6 +450,7 @@ export default function TemplateScreen() {
           sampleSize: entry.sampleSize,
           photoUris: entry.photoUris,
           videoUris: entry.videoUris,
+          severityOverride: entry.severityOverride ?? undefined,
         });
       } else {
         await deleteResult(id, productId, pointKey);
@@ -509,6 +494,7 @@ export default function TemplateScreen() {
         sampleSize: entry.sampleSize,
         photoUris: entry.photoUris,
         videoUris: entry.videoUris,
+        severityOverride: entry.severityOverride ?? undefined,
       });
       setFilledCount(resultsRef.current.size);
     }, delay);
@@ -616,20 +602,28 @@ export default function TemplateScreen() {
           initialPassed={entry.passed ?? null}
           initialNote={entry.note ?? ''}
           initialSampleSize={entry.sampleSize ?? ''}
+          initialSeverityOverride={entry.severityOverride ?? null}
+          defaultSeverity={item.severity}
           photoUris={entry.photoUris}
           videoUris={entry.videoUris}
           instructions={item.instructions}
           onChangeValue={(value, passed) => {
-            scheduleSave(item.productId, item.pointKey, { ...entry, value, passed });
+            const failing = value.trim() !== '' && !passed;
+            const severityOverride = failing ? entry.severityOverride : null;
+            scheduleSave(item.productId, item.pointKey, { ...entry, value, passed, severityOverride });
           }}
           onToggle={(passed) => {
-            scheduleSave(item.productId, item.pointKey, { ...entry, passed }, true);
+            const severityOverride = passed === false ? entry.severityOverride : null;
+            scheduleSave(item.productId, item.pointKey, { ...entry, passed, severityOverride }, true);
           }}
           onNoteChange={(note) => {
             scheduleSave(item.productId, item.pointKey, { ...entry, note });
           }}
           onSampleSizeChange={(sampleSize) => {
             scheduleSave(item.productId, item.pointKey, { ...entry, sampleSize });
+          }}
+          onSeverityChange={(severity) => {
+            scheduleSave(item.productId, item.pointKey, { ...entry, severityOverride: severity }, true);
           }}
           onAddPhoto={() => handleAddPhoto(item.productId, item.pointKey)}
           onRemovePhoto={(uri) => handleRemovePhoto(item.productId, item.pointKey, uri)}
@@ -646,16 +640,22 @@ export default function TemplateScreen() {
         initialPassed={entry.passed ?? null}
         initialNote={entry.note ?? ''}
         initialSampleSize={entry.sampleSize ?? ''}
+        initialSeverityOverride={entry.severityOverride ?? null}
+        defaultSeverity="medium"
         photoUris={entry.photoUris}
         videoUris={entry.videoUris}
         onToggle={(passed) => {
-          scheduleSave(item.productId, item.pointKey, { ...entry, passed }, true);
+          const severityOverride = passed === false ? entry.severityOverride : null;
+          scheduleSave(item.productId, item.pointKey, { ...entry, passed, severityOverride }, true);
         }}
         onNoteChange={(note) => {
           scheduleSave(item.productId, item.pointKey, { ...entry, note });
         }}
         onSampleSizeChange={(sampleSize) => {
           scheduleSave(item.productId, item.pointKey, { ...entry, sampleSize });
+        }}
+        onSeverityChange={(severity) => {
+          scheduleSave(item.productId, item.pointKey, { ...entry, severityOverride: severity }, true);
         }}
         onAddPhoto={() => handleAddPhoto(item.productId, item.pointKey)}
         onRemovePhoto={(uri) => handleRemovePhoto(item.productId, item.pointKey, uri)}

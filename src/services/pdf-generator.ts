@@ -50,6 +50,22 @@ function severityBadge(severity: Severity): string {
   return `<span style="background:${color}22;color:${color};padding:2px 6px;border-radius:8px;font-size:11px;font-weight:bold;">${label}</span>`;
 }
 
+function resolveSeverity(r: InspectionResult, defaultSev: Severity | undefined): Severity {
+  return r.severityOverride ?? defaultSev ?? 'medium';
+}
+
+async function headerPhotoBlock(uri: string | undefined): Promise<string> {
+  if (!uri) return '';
+  try {
+    const b64 = await photoToBase64(uri);
+    return `<div style="margin:12px 0 16px;text-align:center;">
+      <img src="data:image/jpeg;base64,${b64}" style="max-width:100%;max-height:320px;border:1px solid #ddd;border-radius:6px;" />
+    </div>`;
+  } catch {
+    return '';
+  }
+}
+
 function attrStatus(r: InspectionResult | undefined, isNumeric: boolean): 'pass' | 'fail' | 'na' {
   if (!r) return 'na';
   if (isNumeric) {
@@ -156,28 +172,26 @@ export async function generateProductReport(options: ReportOptions): Promise<str
 
   // --- Failures by criticality overview ---
   const severityOrder: Severity[] = ['high', 'medium', 'low'];
+
+  const sevOfAttr = (r: InspectionResult) =>
+    resolveSeverity(r, colSeverityMap.get(r.pointKey.replace('attr:', '')));
+  const sevOfGip = (r: InspectionResult) =>
+    resolveSeverity(r, gipMap.get(r.pointKey.replace('gip:', ''))?.severity);
+  const sevOfPoint = (r: InspectionResult) => resolveSeverity(r, undefined);
+
   let criticalityOverview = '';
   if (failedAttributes.length > 0 || failedGips.length > 0 || failedPoints.length > 0) {
     let rows = '';
     for (const sev of severityOrder) {
-      const attrCount = failedAttributes.filter((r) => {
-        const colKey = r.pointKey.replace('attr:', '');
-        return (colSeverityMap.get(colKey) ?? 'medium') === sev;
-      }).length;
-      const gipCount = failedGips.filter((r) => {
-        const gipKey = r.pointKey.replace('gip:', '');
-        return (gipMap.get(gipKey)?.severity ?? 'medium') === sev;
-      }).length;
-      const count = attrCount + gipCount;
+      const count =
+        failedAttributes.filter((r) => sevOfAttr(r) === sev).length +
+        failedGips.filter((r) => sevOfGip(r) === sev).length +
+        failedPoints.filter((r) => sevOfPoint(r) === sev).length;
       rows += `<tr>
         <td style="padding:5px 8px;">${severityBadge(sev)} ${SEVERITY_LABELS[sev]}</td>
         <td style="padding:5px 8px;font-weight:bold;color:${count > 0 ? SEVERITY_CSS[sev] : '#333'};">${count}</td>
       </tr>`;
     }
-    rows += `<tr>
-      <td style="padding:5px 8px;color:#555;">Inspection Points</td>
-      <td style="padding:5px 8px;font-weight:bold;color:${failedPoints.length > 0 ? '#555' : '#333'};">${failedPoints.length}</td>
-    </tr>`;
     criticalityOverview = `
 <h2>Failures by Criticality</h2>
 <table style="width:auto;">
@@ -189,15 +203,10 @@ export async function generateProductReport(options: ReportOptions): Promise<str
   // --- Failed points detail list ---
   let failedSummaryRows = '';
   for (const sev of severityOrder) {
-    const sevAttrFails = failedAttributes.filter((r) => {
-      const colKey = r.pointKey.replace('attr:', '');
-      return (colSeverityMap.get(colKey) ?? 'medium') === sev;
-    });
-    const sevGipFails = failedGips.filter((r) => {
-      const gipKey = r.pointKey.replace('gip:', '');
-      return (gipMap.get(gipKey)?.severity ?? 'medium') === sev;
-    });
-    const sevFails = [...sevAttrFails, ...sevGipFails];
+    const sevAttrFails = failedAttributes.filter((r) => sevOfAttr(r) === sev);
+    const sevGipFails = failedGips.filter((r) => sevOfGip(r) === sev);
+    const sevPointFails = failedPoints.filter((r) => sevOfPoint(r) === sev);
+    const sevFails = [...sevAttrFails, ...sevGipFails, ...sevPointFails];
     if (sevFails.length === 0) continue;
     failedSummaryRows += `<tr style="background:${SEVERITY_CSS[sev]}11;">
       <td colspan="3" style="padding:4px 8px;font-size:12px;font-weight:bold;color:${SEVERITY_CSS[sev]};">${SEVERITY_LABELS[sev].toUpperCase()} FAILURES (${sevFails.length})</td>
@@ -207,24 +216,12 @@ export async function generateProductReport(options: ReportOptions): Promise<str
       if (r.type === 'attribute') {
         const colKey = r.pointKey.replace('attr:', '');
         label = colMap.get(colKey)?.label ?? colKey;
-      } else {
+      } else if (r.type === 'global_inspection_point') {
         const gipKey = r.pointKey.replace('gip:', '');
         label = gipMap.get(gipKey)?.label ?? gipKey;
+      } else {
+        label = r.pointKey.length > 80 ? r.pointKey.slice(0, 80) + '…' : r.pointKey;
       }
-      failedSummaryRows += `<tr>
-        <td>${escapeHtml(label)}</td>
-        <td>${r.note ? escapeHtml(r.note) : '—'}</td>
-        <td>${mediaCell(photoNumberMap.get(r.pointKey) ?? [], videoNumberMap.get(r.pointKey) ?? [])}</td>
-      </tr>`;
-    }
-  }
-
-  if (failedPoints.length > 0) {
-    failedSummaryRows += `<tr style="background:#f0f0f0;">
-      <td colspan="3" style="padding:4px 8px;font-size:12px;font-weight:bold;color:#333;">INSPECTION POINT FAILURES (${failedPoints.length})</td>
-    </tr>`;
-    for (const r of failedPoints) {
-      const label = r.pointKey.length > 80 ? r.pointKey.slice(0, 80) + '…' : r.pointKey;
       failedSummaryRows += `<tr>
         <td>${escapeHtml(label)}</td>
         <td>${r.note ? escapeHtml(r.note) : '—'}</td>
@@ -374,6 +371,8 @@ export async function generateProductReport(options: ReportOptions): Promise<str
   const totalFailed = failedAttributes.length + failedGips.length + failedPoints.length;
   const totalPassed = productResults.filter((r) => r.passed).length;
 
+  const headerImg = await headerPhotoBlock(inspection.headerPhotoUri);
+
   const html = `<!DOCTYPE html>
 <html>
 <head>
@@ -405,6 +404,8 @@ export async function generateProductReport(options: ReportOptions): Promise<str
   ${inspectorLine}${supplierLine}${locationLine}${invoiceNoLine}
   ${statusLine}
 </div>
+
+${headerImg}
 
 <div style="margin-bottom:16px;">
   <div class="stat"><span>${totalPassed}</span><br/>Passed</div>
@@ -544,6 +545,8 @@ export async function generateNestedReport(options: NestedReportOptions): Promis
   const invoiceNoLine = inspection.invoiceNo
     ? `Batch NO: ${escapeHtml(inspection.invoiceNo)} &nbsp;·&nbsp; ` : '';
 
+  const headerImg = await headerPhotoBlock(inspection.headerPhotoUri);
+
   // Products table
   let productsTableRows = '';
   for (const product of products) {
@@ -583,6 +586,12 @@ export async function generateNestedReport(options: NestedReportOptions): Promis
   }
 
   // Failures per product
+  const sevOfAttr = (r: InspectionResult) =>
+    resolveSeverity(r, colSeverityMap.get(r.pointKey.replace('attr:', '')));
+  const sevOfGip = (r: InspectionResult) =>
+    resolveSeverity(r, gipMap.get(r.pointKey.replace('gip:', ''))?.severity);
+  const sevOfPoint = (r: InspectionResult) => resolveSeverity(r, undefined);
+
   let failuresHtml = '';
   for (const product of products) {
     const pr = results.filter((r) => r.productId === product.id);
@@ -604,36 +613,27 @@ export async function generateNestedReport(options: NestedReportOptions): Promis
     failuresHtml += `<h3 style="font-size:13px;margin:10px 0 4px;color:#333;">${escapeHtml(product.name)} <span style="color:#888;font-size:11px;">(${escapeHtml(product.id)})</span></h3>`;
     let failRows = '';
     for (const sev of severityOrder) {
-      const sevFails = [
-        ...failedAttrs.filter((r) => (colSeverityMap.get(r.pointKey.replace('attr:', '')) ?? 'medium') === sev),
-        ...failedGips.filter((r) => (gipMap.get(r.pointKey.replace('gip:', ''))?.severity ?? 'medium') === sev),
-      ];
+      const sevAttrs = failedAttrs.filter((r) => sevOfAttr(r) === sev);
+      const sevGips = failedGips.filter((r) => sevOfGip(r) === sev);
+      const sevPoints = failedPoints.filter((r) => sevOfPoint(r) === sev);
+      const sevFails = [...sevAttrs, ...sevGips, ...sevPoints];
       if (sevFails.length === 0) continue;
       failRows += `<tr style="background:${SEVERITY_CSS[sev]}11;">
         <td colspan="3" style="padding:4px 8px;font-size:11px;font-weight:bold;color:${SEVERITY_CSS[sev]};">${SEVERITY_LABELS[sev].toUpperCase()} (${sevFails.length})</td>
       </tr>`;
       for (const r of sevFails) {
-        const label = r.type === 'attribute'
-          ? (colMap.get(r.pointKey.replace('attr:', ''))?.label ?? r.pointKey)
-          : (gipMap.get(r.pointKey.replace('gip:', ''))?.label ?? r.pointKey);
+        let label: string;
+        if (r.type === 'attribute') {
+          label = colMap.get(r.pointKey.replace('attr:', ''))?.label ?? r.pointKey;
+        } else if (r.type === 'global_inspection_point') {
+          label = gipMap.get(r.pointKey.replace('gip:', ''))?.label ?? r.pointKey;
+        } else {
+          label = r.pointKey;
+        }
         const photoNums = photoNumberMap.get(`${product.id}:${r.pointKey}`) ?? [];
         const videoNums = videoNumberMap.get(`${product.id}:${r.pointKey}`) ?? [];
         failRows += `<tr>
           <td>${escapeHtml(label)}</td>
-          <td>${r.note ? escapeHtml(r.note) : '—'}</td>
-          <td>${mediaCell(photoNums, videoNums)}</td>
-        </tr>`;
-      }
-    }
-    if (failedPoints.length > 0) {
-      failRows += `<tr style="background:#f0f0f0;">
-        <td colspan="3" style="padding:4px 8px;font-size:11px;font-weight:bold;color:#333;">INSPECTION POINTS (${failedPoints.length})</td>
-      </tr>`;
-      for (const r of failedPoints) {
-        const photoNums = photoNumberMap.get(`${product.id}:${r.pointKey}`) ?? [];
-        const videoNums = videoNumberMap.get(`${product.id}:${r.pointKey}`) ?? [];
-        failRows += `<tr>
-          <td>${escapeHtml(r.pointKey)}</td>
           <td>${r.note ? escapeHtml(r.note) : '—'}</td>
           <td>${mediaCell(photoNums, videoNums)}</td>
         </tr>`;
@@ -814,6 +814,8 @@ export async function generateNestedReport(options: NestedReportOptions): Promis
   ${escapeHtml(dateStr)}<br/>
   ${inspectorLine}${supplierLine}${locationLine}${invoiceNoLine}
 </div>
+
+${headerImg}
 
 <h2>Products Inspected</h2>
 <table>

@@ -45,7 +45,8 @@ CREATE TABLE IF NOT EXISTS inspections (
   location TEXT,
   invoice_no TEXT,
   inspector_name TEXT,
-  report_type TEXT NOT NULL DEFAULT 'normal'
+  report_type TEXT NOT NULL DEFAULT 'normal',
+  header_photo_uri TEXT
 );
 
 CREATE TABLE IF NOT EXISTS inspection_products (
@@ -70,6 +71,7 @@ CREATE TABLE IF NOT EXISTS inspection_results (
   photo_uris TEXT NOT NULL DEFAULT '[]',
   video_uris TEXT NOT NULL DEFAULT '[]',
   sample_size TEXT,
+  severity_override TEXT,
   UNIQUE (inspection_id, product_id, point_key)
 );
 

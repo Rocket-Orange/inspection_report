@@ -71,7 +71,7 @@ export default function ReportScreen() {
       const inspRow = await db.getFirstAsync<{
         id: string; date: string; units_inspected: number; batch_size: number; status: string;
         supplier: string | null; location: string | null; invoice_no: string | null;
-        inspector_name: string | null; report_type: string;
+        inspector_name: string | null; report_type: string; header_photo_uri: string | null;
       }>('SELECT * FROM inspections WHERE id = ?', [id]);
       if (!inspRow) return;
 
@@ -123,6 +123,7 @@ export default function ReportScreen() {
         invoiceNo: inspRow.invoice_no ?? undefined,
         inspectorName: inspRow.inspector_name ?? undefined,
         reportType: (inspRow.report_type as 'normal' | 'nested') ?? 'normal',
+        headerPhotoUri: inspRow.header_photo_uri ?? undefined,
       };
       setInspection(insp);
       setAllProducts(products);

@@ -2,6 +2,8 @@ import { router } from 'expo-router';
 import React, { useState } from 'react';
 import {
   FlatList,
+  Image,
+  Keyboard,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -15,7 +17,9 @@ import { BottomTabInset, Spacing } from '@/constants/theme';
 import { useInspections } from '@/hooks/use-inspections';
 import { useProducts } from '@/hooks/use-products';
 import { useTheme } from '@/hooks/use-theme';
+import { captureHeaderPhotoUri, pickHeaderPhotoUri } from '@/services/photo-service';
 import type { Product } from '@/types';
+import { chooseSource } from '@/utils/choose-source';
 
 interface ProductUnits {
   units: string;
@@ -72,6 +76,7 @@ export default function NewInspectionScreen() {
   const [invoiceNo, setInvoiceNo] = useState('');
   const [inspectorName, setInspectorName] = useState('');
   const [reportType, setReportType] = useState<'normal' | 'nested'>('normal');
+  const [headerPhotoUri, setHeaderPhotoUri] = useState<string | null>(null);
   const [starting, setStarting] = useState(false);
 
   const filtered = search(query);
@@ -114,6 +119,14 @@ export default function NewInspectionScreen() {
       return parseInt(u?.units ?? '', 10) > 0 && parseInt(u?.batch ?? '', 10) > 0;
     });
 
+  async function handlePickHeader() {
+    Keyboard.dismiss();
+    const source = await chooseSource('Add cover photo', 'Take photo', 'Choose from gallery');
+    if (!source) return;
+    const uri = source === 'camera' ? await captureHeaderPhotoUri() : await pickHeaderPhotoUri();
+    if (uri) setHeaderPhotoUri(uri);
+  }
+
   async function handleStart() {
     if (!canStart) return;
     setStarting(true);
@@ -137,6 +150,7 @@ export default function NewInspectionScreen() {
         invoiceNo: invoiceNo.trim() || undefined,
         inspectorName: inspectorName.trim() || undefined,
         reportType: selected.size >= 2 ? reportType : 'normal',
+        headerPhotoSourceUri: headerPhotoUri ?? undefined,
         productUnits: units,
       });
       router.replace({ pathname: '/inspection/[id]/template', params: { id } });
@@ -338,6 +352,22 @@ export default function NewInspectionScreen() {
           </ThemedText>
         )}
 
+        {headerPhotoUri ? (
+          <View style={[styles.coverRow, { backgroundColor: theme.backgroundElement }]}>
+            <Image source={{ uri: headerPhotoUri }} style={styles.coverThumb} />
+            <ThemedText type="small" style={styles.coverLabel}>Cover photo</ThemedText>
+            <Pressable onPress={() => setHeaderPhotoUri(null)} hitSlop={8} style={styles.coverRemove}>
+              <ThemedText style={styles.coverRemoveText}>×</ThemedText>
+            </Pressable>
+          </View>
+        ) : (
+          <Pressable
+            onPress={handlePickHeader}
+            style={[styles.coverAddBtn, { backgroundColor: theme.backgroundElement }]}>
+            <ThemedText type="small" style={styles.coverAddText}>+ Add cover photo</ThemedText>
+          </Pressable>
+        )}
+
         <Pressable
           onPress={handleStart}
           disabled={!canStart || starting}
@@ -443,6 +473,35 @@ const styles = StyleSheet.create({
     paddingVertical: Spacing.one + 2,
     alignItems: 'center',
   },
+  coverAddBtn: {
+    borderRadius: 10,
+    paddingVertical: Spacing.two,
+    alignItems: 'center',
+  },
+  coverAddText: { color: '#3c87f7', fontWeight: '600' },
+  coverRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.two,
+    borderRadius: 10,
+    padding: Spacing.two,
+  },
+  coverThumb: {
+    width: 48,
+    height: 48,
+    borderRadius: 6,
+    backgroundColor: '#ddd',
+  },
+  coverLabel: { flex: 1, fontWeight: '600' },
+  coverRemove: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    backgroundColor: '#00000022',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  coverRemoveText: { fontSize: 18, lineHeight: 20, color: '#333', fontWeight: '700' },
   startBtn: {
     borderRadius: 12,
     padding: Spacing.two + 2,

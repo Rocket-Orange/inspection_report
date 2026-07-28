@@ -1,12 +1,13 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { Modal, Pressable, StyleSheet, TextInput, View } from 'react-native';
 
 import { Spacing } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
-import type { ColumnConfig } from '@/types';
+import type { ColumnConfig, Severity } from '@/types';
 
 import { ThemedText } from '../themed-text';
 import { PhotoThumbnail } from './photo-thumbnail';
+import { SeverityPicker } from './severity-picker';
 
 interface Props {
   column: ColumnConfig;
@@ -15,6 +16,8 @@ interface Props {
   initialPassed: boolean | null;
   initialNote: string;
   initialSampleSize: string;
+  initialSeverityOverride: Severity | null;
+  defaultSeverity: Severity;
   photoUris: string[];
   videoUris: string[];
   instructions?: string;
@@ -22,6 +25,7 @@ interface Props {
   onToggle: (passed: boolean | null) => void;
   onNoteChange: (note: string) => void;
   onSampleSizeChange: (sampleSize: string) => void;
+  onSeverityChange: (severity: Severity) => void;
   onAddPhoto: () => void;
   onRemovePhoto: (uri: string) => void;
   onAddVideo: () => void;
@@ -83,6 +87,8 @@ export function AttributeRow({
   initialPassed,
   initialNote,
   initialSampleSize,
+  initialSeverityOverride,
+  defaultSeverity,
   photoUris,
   videoUris,
   instructions,
@@ -90,6 +96,7 @@ export function AttributeRow({
   onToggle,
   onNoteChange,
   onSampleSizeChange,
+  onSeverityChange,
   onAddPhoto,
   onRemovePhoto,
   onAddVideo,
@@ -100,6 +107,7 @@ export function AttributeRow({
   const [passed, setPassed] = useState<boolean | null>(initialPassed);
   const [note, setNote] = useState(initialNote);
   const [sampleSize, setSampleSize] = useState(initialSampleSize);
+  const [severityOverride, setSeverityOverride] = useState<Severity | null>(initialSeverityOverride);
   const [showNote, setShowNote] = useState(!!initialNote);
   const [showInstructions, setShowInstructions] = useState(false);
 
@@ -111,12 +119,29 @@ export function AttributeRow({
   function handleToggle(val: boolean) {
     if (passed === val) {
       setPassed(null);
+      setSeverityOverride(null);
       onToggle(null);
     } else {
       setPassed(val);
+      if (val === true) setSeverityOverride(null);
       onToggle(val);
     }
   }
+
+  function handleSeverity(sev: Severity) {
+    setSeverityOverride(sev);
+    onSeverityChange(sev);
+  }
+
+  const numericFailing = column.isNumeric
+    && value.trim() !== ''
+    && !computePassed(value, referenceValue, column.tolerance);
+  const nonNumericFailing = !column.isNumeric && passed === false;
+  const failing = numericFailing || nonNumericFailing;
+
+  useEffect(() => {
+    if (!failing && severityOverride !== null) setSeverityOverride(null);
+  }, [failing, severityOverride]);
 
   function handleNote(text: string) {
     setNote(text);
@@ -208,6 +233,13 @@ export function AttributeRow({
             </View>
           </View>
         </View>
+
+        {passed === false && (
+          <SeverityPicker
+            value={severityOverride ?? defaultSeverity}
+            onChange={handleSeverity}
+          />
+        )}
 
         {showNote && (
           <TextInput
@@ -303,6 +335,13 @@ export function AttributeRow({
           </View>
         </View>
       </View>
+
+      {hasValue && !computedPassed && (
+        <SeverityPicker
+          value={severityOverride ?? defaultSeverity}
+          onChange={handleSeverity}
+        />
+      )}
 
       {showNote && (
         <TextInput

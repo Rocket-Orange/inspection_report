@@ -13,7 +13,7 @@ import type { Inspection, Severity } from '@/types';
 
 interface FailedItem {
   label: string;
-  severity: Severity | null;
+  severity: Severity;
   productName: string;
   note?: string;
 }
@@ -57,6 +57,7 @@ export default function ReviewScreen() {
 
       const resultRows = await db.getAllAsync<{
         product_id: string; point_key: string; type: string; passed: number; note: string | null;
+        severity_override: string | null;
       }>('SELECT * FROM inspection_results WHERE inspection_id = ?', [id]);
 
       const colRows = await db.getAllAsync<{ key: string; label: string; severity: string }>(
@@ -86,25 +87,27 @@ export default function ReviewScreen() {
           passed++;
         } else {
           let label = r.point_key;
-          let severity: Severity | null = 'medium';
+          let defaultSeverity: Severity = 'medium';
 
           if (r.type === 'attribute') {
             const colKey = r.point_key.replace('attr:', '');
             const colMeta = colMap.get(colKey);
             label = colMeta?.label ?? colKey;
-            severity = colMeta?.severity ?? 'medium';
+            defaultSeverity = colMeta?.severity ?? 'medium';
           } else if (r.type === 'global_inspection_point') {
             const gipKey = r.point_key.replace('gip:', '');
             const gipMeta = gipMap.get(gipKey);
             label = gipMeta?.label ?? gipKey;
-            severity = gipMeta?.severity ?? 'medium';
+            defaultSeverity = gipMeta?.severity ?? 'medium';
           } else {
             const text = ipTextMap.get(`${r.product_id}:${r.point_key}`);
             if (text) {
               label = text.length > 80 ? text.slice(0, 80) + '…' : text;
             }
-            severity = null;
+            defaultSeverity = 'medium';
           }
+
+          const severity: Severity = (r.severity_override as Severity | null) ?? defaultSeverity;
 
           failures.push({
             label,
@@ -115,9 +118,9 @@ export default function ReviewScreen() {
         }
       }
 
-      // Sort: high → medium → low → inspection points (null)
+      // Sort: high → medium → low
       const order: Record<Severity, number> = { high: 0, medium: 1, low: 2 };
-      failures.sort((a, b) => (a.severity ? order[a.severity] : 3) - (b.severity ? order[b.severity] : 3));
+      failures.sort((a, b) => order[a.severity] - order[b.severity]);
 
       setInspection({
         id: inspRow.id,
@@ -202,7 +205,7 @@ export default function ReviewScreen() {
         renderItem={({ item }) => (
           <View style={[styles.failureItem, { backgroundColor: theme.backgroundElement }]}>
             <View style={styles.failureHeader}>
-              {item.severity ? <SeverityBadge severity={item.severity} /> : null}
+              <SeverityBadge severity={item.severity} />
               <ThemedText type="small" themeColor="textSecondary">
                 {item.productName}
               </ThemedText>
