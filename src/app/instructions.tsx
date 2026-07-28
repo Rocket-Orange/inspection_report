@@ -71,7 +71,7 @@ Inspection points (product-specific checklist items):
 • Pass / Fail toggle, sample size, note, and photo/video — same controls as above.
 • No severity badge; no reference value.
 
-Global Inspection Points appear in each product section (in their assigned group, or under a dedicated "Global Inspection Points" sub-header if ungrouped). They work the same as product info columns.
+Global Inspection Points appear in each product section (in their assigned group, or under a dedicated "Global inspection points" sub-header if ungrouped). They work the same as product info columns.
 
 Auto-save: All changes save automatically as you type. There is no save button.
 
@@ -111,7 +111,7 @@ Videos are never embedded in the PDF — they are always provided as separate fi
     title: '7 — Settings: Columns & Groups',
     subtitle: 'Configuring product info columns, groups, and import.',
     body: `Product Data
-• Import Product Data (.xlsx) — loads products, attribute columns, inspection points, and Global Inspection Points from the spreadsheet. Re-importing updates existing products and preserves your column settings. If the file contains a "Global Inspection Points" sheet, it replaces all existing global inspection points.
+• Import Product Data (.xlsx) — loads products, attribute columns, inspection points, and Global Inspection Points from the spreadsheet. Re-importing updates existing products and preserves your column settings. If the file contains a "Global inspection points" sheet, it replaces all existing global inspection points.
 
 Product Info Columns (visible after import)
 Each column from your spreadsheet can be configured:
@@ -134,7 +134,7 @@ Create named groups (e.g. "Dimensions", "Colour") to organise columns. Use the a
     title: '8 — Settings: Global Points & Saved Settings',
     subtitle: 'Global inspection points and settings file backup.',
     body: `Global Inspection Points
-Checklist items that appear for every product in every inspection. They are loaded from the Product Data spreadsheet (the "Global Inspection Points" sheet). Re-importing product data replaces all global inspection points with those in the file.
+Checklist items that appear for every product in every inspection. They are loaded from the Product Data spreadsheet (the "Global inspection points" sheet). Re-importing product data replaces all global inspection points with those in the file.
 
 You can still add, edit, and reorder them here between imports — but the next product data import will overwrite them. They support the same type / tolerance / severity / group / instructions options as product info columns.
 
