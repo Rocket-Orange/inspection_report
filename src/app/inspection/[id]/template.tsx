@@ -2,6 +2,7 @@ import { router, useLocalSearchParams } from 'expo-router';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
+  Alert,
   Keyboard,
   KeyboardAvoidingView,
   Platform,
@@ -19,8 +20,8 @@ import { BottomTabInset, Spacing } from '@/constants/theme';
 import { useSQLiteContext } from '@/db';
 import { useInspections } from '@/hooks/use-inspections';
 import { useTheme } from '@/hooks/use-theme';
-import { takePhoto } from '@/services/photo-service';
-import { recordVideo } from '@/services/video-service';
+import { pickPhoto, takePhoto } from '@/services/photo-service';
+import { pickVideo, recordVideo } from '@/services/video-service';
 import type { ColumnConfig, GlobalInspectionPoint, Group, Inspection, InspectionPointConfig, Product, ProductInspectionPoint, Severity, ToleranceType } from '@/types';
 
 interface AttributeItem {
@@ -74,6 +75,25 @@ interface ResultEntry {
   sampleSize?: string;
   photoUris: string[];
   videoUris: string[];
+}
+
+function chooseSource(
+  title: string,
+  cameraLabel: string,
+  galleryLabel: string,
+): Promise<'camera' | 'gallery' | null> {
+  return new Promise((resolve) => {
+    Alert.alert(
+      title,
+      undefined,
+      [
+        { text: cameraLabel, onPress: () => resolve('camera') },
+        { text: galleryLabel, onPress: () => resolve('gallery') },
+        { text: 'Cancel', style: 'cancel', onPress: () => resolve(null) },
+      ],
+      { cancelable: true, onDismiss: () => resolve(null) },
+    );
+  });
 }
 
 async function loadTemplateData(db: ReturnType<typeof useSQLiteContext>, inspectionId: string) {
@@ -499,7 +519,9 @@ export default function TemplateScreen() {
   async function handleAddPhoto(productId: string, pointKey: string) {
     Keyboard.dismiss();
     const entry = getEntry(productId, pointKey);
-    const uri = await takePhoto(id, pointKey);
+    const source = await chooseSource('Add photo', 'Take photo', 'Choose from gallery');
+    if (!source) return;
+    const uri = await (source === 'camera' ? takePhoto(id, pointKey) : pickPhoto(id, pointKey));
     if (!uri) return;
     const updated: ResultEntry = { ...entry, photoUris: [...entry.photoUris, uri] };
     scheduleSave(productId, pointKey, updated, true);
@@ -523,7 +545,9 @@ export default function TemplateScreen() {
   async function handleAddVideo(productId: string, pointKey: string) {
     Keyboard.dismiss();
     const entry = getEntry(productId, pointKey);
-    const uri = await recordVideo(id, pointKey);
+    const source = await chooseSource('Add video', 'Record video', 'Choose from gallery');
+    if (!source) return;
+    const uri = await (source === 'camera' ? recordVideo(id, pointKey) : pickVideo(id, pointKey));
     if (!uri) return;
     const updated: ResultEntry = { ...entry, videoUris: [...entry.videoUris, uri] };
     scheduleSave(productId, pointKey, updated, true);

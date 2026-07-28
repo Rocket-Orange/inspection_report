@@ -15,6 +15,19 @@ export async function recordVideo(inspectionId: string, pointKey: string): Promi
   return saveVideo(result.assets[0].uri, inspectionId, pointKey);
 }
 
+export async function pickVideo(inspectionId: string, pointKey: string): Promise<string | null> {
+  const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+  if (status !== 'granted') return null;
+
+  const result = await ImagePicker.launchImageLibraryAsync({
+    mediaTypes: 'videos',
+    allowsMultipleSelection: false,
+  });
+
+  if (result.canceled || !result.assets[0]) return null;
+  return saveVideo(result.assets[0].uri, inspectionId, pointKey);
+}
+
 function saveVideo(sourceUri: string, inspectionId: string, pointKey: string): string {
   const dirUri = Paths.document.uri + `inspections/${inspectionId}/`;
   new Directory(dirUri).create({ intermediates: true, idempotent: true });
