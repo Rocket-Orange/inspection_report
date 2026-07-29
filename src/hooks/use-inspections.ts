@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 
 import { useSQLiteContext } from '@/db';
 import { deleteInspectionPhotos, saveHeaderPhoto } from '@/services/photo-service';
-import type { Inspection, InspectionProduct, InspectionResult, InspectionStatus, PointType, Severity } from '@/types';
+import type { Inspection, InspectionProduct, InspectionResult, InspectionStatus, PointType, ReinspectionScope, Severity } from '@/types';
 import { buildInspectionTitle } from '@/utils/inspection-title';
 
 interface InspectionRow {
@@ -18,6 +18,9 @@ interface InspectionRow {
   report_type: string;
   header_photo_uri: string | null;
   summary: string | null;
+  parent_inspection_id: string | null;
+  reinspection_scope: string | null;
+  reinspection_depth: number | null;
 }
 
 interface InspectionProductRow {
@@ -55,6 +58,16 @@ async function loadProductIds(db: ReturnType<typeof useSQLiteContext>, inspectio
   return rows.map((r) => r.product_id);
 }
 
+function parseScope(raw: string | null): ReinspectionScope | undefined {
+  if (!raw) return undefined;
+  try {
+    const parsed = JSON.parse(raw) as ReinspectionScope;
+    return parsed;
+  } catch {
+    return undefined;
+  }
+}
+
 function mapRow(r: InspectionRow, productIds: string[]): Inspection {
   return {
     id: r.id,
@@ -70,6 +83,9 @@ function mapRow(r: InspectionRow, productIds: string[]): Inspection {
     reportType: (r.report_type as 'normal' | 'nested') ?? 'normal',
     headerPhotoUri: r.header_photo_uri ?? undefined,
     summary: r.summary ?? undefined,
+    parentInspectionId: r.parent_inspection_id ?? undefined,
+    reinspectionScope: parseScope(r.reinspection_scope),
+    reinspectionDepth: r.reinspection_depth ?? 0,
   };
 }
 
@@ -153,15 +169,41 @@ export function useInspections() {
     reportType?: 'normal' | 'nested';
     headerPhotoSourceUri?: string;
     productUnits: Map<string, { unitsInspected: number; batchSize: number; productionStatus?: number; packingStatus?: number }>;
+    parentInspectionId?: string;
+    reinspectionScope?: ReinspectionScope;
   }): Promise<string> {
     const id = generateId();
     const date = new Date().toISOString();
     const totalUnits = data.productIds.reduce((s, pid) => s + (data.productUnits.get(pid)?.unitsInspected ?? 1), 0);
     const totalBatch = data.productIds.reduce((s, pid) => s + (data.productUnits.get(pid)?.batchSize ?? 1), 0);
+
+    let reinspectionDepth = 0;
+    if (data.parentInspectionId) {
+      const parent = await db.getFirstAsync<{ reinspection_depth: number | null }>(
+        'SELECT reinspection_depth FROM inspections WHERE id = ?',
+        [data.parentInspectionId],
+      );
+      reinspectionDepth = (parent?.reinspection_depth ?? 0) + 1;
+    }
+
     await db.withTransactionAsync(async () => {
       await db.runAsync(
-        'INSERT INTO inspections (id, date, units_inspected, batch_size, status, supplier, location, invoice_no, inspector_name, report_type) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
-        [id, date, totalUnits, totalBatch, 'in_progress', data.supplier ?? null, data.location ?? null, data.invoiceNo ?? null, data.inspectorName ?? null, data.reportType ?? 'normal'],
+        'INSERT INTO inspections (id, date, units_inspected, batch_size, status, supplier, location, invoice_no, inspector_name, report_type, parent_inspection_id, reinspection_scope, reinspection_depth) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+        [
+          id,
+          date,
+          totalUnits,
+          totalBatch,
+          'in_progress',
+          data.supplier ?? null,
+          data.location ?? null,
+          data.invoiceNo ?? null,
+          data.inspectorName ?? null,
+          data.reportType ?? 'normal',
+          data.parentInspectionId ?? null,
+          data.reinspectionScope ? JSON.stringify(data.reinspectionScope) : null,
+          reinspectionDepth,
+        ],
       );
       for (const productId of data.productIds) {
         const units = data.productUnits.get(productId) ?? { unitsInspected: 1, batchSize: 1 };

@@ -2,7 +2,7 @@ import type { SQLiteDatabase } from 'expo-sqlite';
 
 import { CREATE_TABLES } from './schema';
 
-const CURRENT_VERSION = 9;
+const CURRENT_VERSION = 10;
 
 export async function migrateDatabase(db: SQLiteDatabase): Promise<void> {
   const result = await db.getFirstAsync<{ user_version: number }>('PRAGMA user_version');
@@ -77,6 +77,13 @@ export async function migrateDatabase(db: SQLiteDatabase): Promise<void> {
     await db.withTransactionAsync(async () => {
       await db.runAsync(`ALTER TABLE inspections ADD COLUMN summary TEXT`);
       await db.execAsync(`PRAGMA user_version = 9`);
+    });
+  } else if (version === 9) {
+    await db.withTransactionAsync(async () => {
+      await db.runAsync(`ALTER TABLE inspections ADD COLUMN parent_inspection_id TEXT`);
+      await db.runAsync(`ALTER TABLE inspections ADD COLUMN reinspection_scope TEXT`);
+      await db.runAsync(`ALTER TABLE inspections ADD COLUMN reinspection_depth INTEGER NOT NULL DEFAULT 0`);
+      await db.execAsync(`PRAGMA user_version = 10`);
     });
   }
 }

@@ -3,15 +3,17 @@ import { router, useLocalSearchParams } from 'expo-router';
 import * as Sharing from 'expo-sharing';
 import JSZip from 'jszip';
 import React, { useEffect, useState } from 'react';
-import { ActivityIndicator, Pressable, ScrollView, StyleSheet, View } from 'react-native';
+import { ActivityIndicator, Alert, Pressable, ScrollView, StyleSheet, View } from 'react-native';
 
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 import { BottomTabInset, Spacing } from '@/constants/theme';
 import { useSQLiteContext } from '@/db';
+import { useInspections } from '@/hooks/use-inspections';
 import { useTheme } from '@/hooks/use-theme';
 import { generateNestedReport, generateProductReport, sharePdf } from '@/services/pdf-generator';
 import type { ColumnConfig, GlobalInspectionPoint, Group, Inspection, InspectionPointConfig, InspectionResult, PointType, Product, Severity, ToleranceType } from '@/types';
+import { getFailedItems } from '@/utils/inspection-failures';
 
 interface ProductReport {
   product: Product;
@@ -51,6 +53,7 @@ export default function ReportScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const theme = useTheme();
   const db = useSQLiteContext();
+  const { createInspection } = useInspections();
 
   const [loading, setLoading] = useState(true);
   const [inspection, setInspection] = useState<Inspection | null>(null);
@@ -60,6 +63,7 @@ export default function ReportScreen() {
   const [selectedIndex, setSelectedIndex] = useState(0);
   const [sharing, setSharing] = useState(false);
   const [shareError, setShareError] = useState<string | null>(null);
+  const [creatingReinspection, setCreatingReinspection] = useState(false);
 
   useEffect(() => {
     load();
@@ -73,6 +77,8 @@ export default function ReportScreen() {
         supplier: string | null; location: string | null; invoice_no: string | null;
         inspector_name: string | null; report_type: string; header_photo_uri: string | null;
         summary: string | null;
+        parent_inspection_id: string | null; reinspection_scope: string | null;
+        reinspection_depth: number | null;
       }>('SELECT * FROM inspections WHERE id = ?', [id]);
       if (!inspRow) return;
 
@@ -90,27 +96,33 @@ export default function ReportScreen() {
         if (p) products.push({ id: p.id, name: p.name, attributes: JSON.parse(p.attributes) });
       }
 
+      const scope = inspRow.reinspection_scope ? (JSON.parse(inspRow.reinspection_scope) as { attrKeys: string[]; gipKeys: string[]; ipsByProduct: Record<string, number[]> }) : null;
+      const gipKeySet = scope ? new Set(scope.gipKeys) : null;
+
       const gipRows = await db.getAllAsync<{
         key: string; label: string; visible: number; is_numeric: number;
         tolerance_type: string | null; tolerance_value: number | null;
         group_name: string | null; severity: string; sort_order: number; instructions: string | null;
       }>('SELECT * FROM global_inspection_points ORDER BY sort_order');
-      setGlobalInspectionPoints(gipRows.map((r) => ({
-        key: r.key,
-        label: r.label,
-        visible: r.visible === 1,
-        isNumeric: r.is_numeric === 1,
-        severity: r.severity as Severity,
-        group: r.group_name ?? undefined,
-        tolerance: (() => {
-          if (!r.tolerance_type) return undefined;
-          const type = r.tolerance_type as ToleranceType;
-          if (type === 'min' || type === 'max') return { type, value: r.tolerance_value };
-          return r.tolerance_value != null ? { type, value: r.tolerance_value } : undefined;
-        })(),
-        instructions: r.instructions ?? undefined,
-        sortOrder: r.sort_order,
-      })));
+      const gips = gipRows
+        .filter((r) => (gipKeySet ? gipKeySet.has(r.key) : true))
+        .map((r) => ({
+          key: r.key,
+          label: r.label,
+          visible: r.visible === 1,
+          isNumeric: r.is_numeric === 1,
+          severity: r.severity as Severity,
+          group: r.group_name ?? undefined,
+          tolerance: (() => {
+            if (!r.tolerance_type) return undefined;
+            const type = r.tolerance_type as ToleranceType;
+            if (type === 'min' || type === 'max') return { type, value: r.tolerance_value };
+            return r.tolerance_value != null ? { type, value: r.tolerance_value } : undefined;
+          })(),
+          instructions: r.instructions ?? undefined,
+          sortOrder: r.sort_order,
+        }));
+      setGlobalInspectionPoints(gips);
 
       const insp: Inspection = {
         id: inspRow.id,
@@ -126,6 +138,9 @@ export default function ReportScreen() {
         reportType: (inspRow.report_type as 'normal' | 'nested') ?? 'normal',
         headerPhotoUri: inspRow.header_photo_uri ?? undefined,
         summary: inspRow.summary ?? undefined,
+        parentInspectionId: inspRow.parent_inspection_id ?? undefined,
+        reinspectionScope: inspRow.reinspection_scope ? JSON.parse(inspRow.reinspection_scope) : undefined,
+        reinspectionDepth: inspRow.reinspection_depth ?? 0,
       };
       setInspection(insp);
       setAllProducts(products);
@@ -150,12 +165,16 @@ export default function ReportScreen() {
     );
 
     try {
+      const scope = inspection.reinspectionScope ?? null;
+      const attrKeySet = scope ? new Set(scope.attrKeys) : null;
+
       const colRows = await db.getAllAsync<{
         key: string; label: string; visible: number; is_numeric: number;
         tolerance_type: string | null; tolerance_value: number | null;
         group_name: string | null; severity: string; sort_order: number;
       }>('SELECT * FROM column_configs WHERE visible = 1 ORDER BY sort_order');
-      const columnConfigs: ColumnConfig[] = colRows.map((r) => ({
+      const filteredColRows = attrKeySet ? colRows.filter((r) => attrKeySet.has(r.key)) : colRows;
+      const columnConfigs: ColumnConfig[] = filteredColRows.map((r) => ({
         key: r.key, label: r.label, visible: true, isNumeric: r.is_numeric === 1,
         severity: r.severity as Severity,
         group: r.group_name ?? undefined,
@@ -200,10 +219,15 @@ export default function ReportScreen() {
             packingStatus: puRow?.packing_status ?? undefined,
           });
 
-          const ipRows = await db.getAllAsync<{ point_index: number; point_text: string }>(
-            'SELECT point_index, point_text FROM product_inspection_points WHERE product_id = ? ORDER BY point_index',
-            [product.id],
-          );
+          const scopedIndices = scope ? (scope.ipsByProduct[product.id] ?? []) : null;
+          const ipRows = scopedIndices && scopedIndices.length === 0
+            ? []
+            : await db.getAllAsync<{ point_index: number; point_text: string }>(
+                scopedIndices
+                  ? `SELECT point_index, point_text FROM product_inspection_points WHERE product_id = ? AND point_index IN (${scopedIndices.map(() => '?').join(',')}) ORDER BY point_index`
+                  : 'SELECT point_index, point_text FROM product_inspection_points WHERE product_id = ? ORDER BY point_index',
+                scopedIndices ? [product.id, ...scopedIndices] : [product.id],
+              );
           productInspectionPointsMap.set(product.id, ipRows.map((r) => ({ pointIndex: r.point_index, pointText: r.point_text })));
           const pm = new Map<string, string>();
           ipRows.forEach((r) => pm.set(`ip:${r.point_index}`, r.point_text));
@@ -260,10 +284,15 @@ export default function ReportScreen() {
       );
       const inspectionPointConfigs: InspectionPointConfig[] = ipConfigRows.map((r) => ({ text: r.text }));
 
-      const ipTextRows = await db.getAllAsync<{ product_id: string; point_index: number; point_text: string }>(
-        'SELECT * FROM product_inspection_points WHERE product_id = ?',
-        [pr.product.id],
-      );
+      const scopedIndicesSingle = scope ? (scope.ipsByProduct[pr.product.id] ?? []) : null;
+      const ipTextRows = scopedIndicesSingle && scopedIndicesSingle.length === 0
+        ? []
+        : await db.getAllAsync<{ product_id: string; point_index: number; point_text: string }>(
+            scopedIndicesSingle
+              ? `SELECT * FROM product_inspection_points WHERE product_id = ? AND point_index IN (${scopedIndicesSingle.map(() => '?').join(',')})`
+              : 'SELECT * FROM product_inspection_points WHERE product_id = ?',
+            scopedIndicesSingle ? [pr.product.id, ...scopedIndicesSingle] : [pr.product.id],
+          );
       const ipTextMap = new Map(ipTextRows.map((r) => [`ip:${r.point_index}`, r.point_text]));
 
       const productVideoUris: string[] = [];
@@ -322,6 +351,57 @@ export default function ReportScreen() {
       prev.map((r, i) => (i === index ? { ...r, pdfUri: null, videoUris: [], error: null } : r)),
     );
     generateReport(index);
+  }
+
+  async function handleReinspection() {
+    if (!inspection || creatingReinspection) return;
+    setCreatingReinspection(true);
+    try {
+      const failures = await getFailedItems(db, id);
+      if (failures.totalFailures === 0) {
+        Alert.alert('No failures to reinspect', 'This report has no failing items.');
+        return;
+      }
+
+      const productUnits = new Map<string, { unitsInspected: number; batchSize: number; productionStatus?: number; packingStatus?: number }>();
+      for (const pid of failures.productIds) {
+        const row = await db.getFirstAsync<{
+          units_inspected: number; batch_size: number;
+          production_status: number | null; packing_status: number | null;
+        }>(
+          'SELECT units_inspected, batch_size, production_status, packing_status FROM inspection_products WHERE inspection_id = ? AND product_id = ?',
+          [id, pid],
+        );
+        productUnits.set(pid, {
+          unitsInspected: row?.units_inspected ?? 1,
+          batchSize: row?.batch_size ?? 1,
+          productionStatus: row?.production_status ?? undefined,
+          packingStatus: row?.packing_status ?? undefined,
+        });
+      }
+
+      const newId = await createInspection({
+        productIds: failures.productIds,
+        supplier: inspection.supplier,
+        location: inspection.location,
+        invoiceNo: inspection.invoiceNo,
+        inspectorName: inspection.inspectorName,
+        reportType: inspection.reportType,
+        productUnits,
+        parentInspectionId: id,
+        reinspectionScope: {
+          attrKeys: failures.attrKeys,
+          gipKeys: failures.gipKeys,
+          ipsByProduct: failures.ipsByProduct,
+        },
+      });
+
+      router.replace({ pathname: '/inspection/[id]/template', params: { id: newId } });
+    } catch (err) {
+      Alert.alert('Failed to start reinspection', String(err));
+    } finally {
+      setCreatingReinspection(false);
+    }
   }
 
   async function handleShare(index: number) {
@@ -478,6 +558,14 @@ export default function ReportScreen() {
               style={[styles.secondaryBtn, { backgroundColor: theme.backgroundElement }]}>
               <ThemedText style={[styles.secondaryBtnText, { color: theme.textSecondary }]}>
                 ✏ Edit
+              </ThemedText>
+            </Pressable>
+            <Pressable
+              onPress={handleReinspection}
+              disabled={creatingReinspection}
+              style={[styles.secondaryBtn, { backgroundColor: theme.backgroundElement, opacity: creatingReinspection ? 0.7 : 1 }]}>
+              <ThemedText style={[styles.secondaryBtnText, { color: theme.textSecondary }]}>
+                {creatingReinspection ? 'Starting…' : '↻ Reinspection'}
               </ThemedText>
             </Pressable>
           </View>

@@ -129,6 +129,7 @@ export default function ReviewScreen() {
         unitsInspected: inspRow.units_inspected,
         batchSize: inspRow.batch_size,
         status: inspRow.status as Inspection['status'],
+        reinspectionDepth: 0,
       });
       setTotalCount(total);
       setPassedCount(passed);

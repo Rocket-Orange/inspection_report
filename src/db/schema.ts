@@ -47,7 +47,10 @@ CREATE TABLE IF NOT EXISTS inspections (
   inspector_name TEXT,
   report_type TEXT NOT NULL DEFAULT 'normal',
   header_photo_uri TEXT,
-  summary TEXT
+  summary TEXT,
+  parent_inspection_id TEXT,
+  reinspection_scope TEXT,
+  reinspection_depth INTEGER NOT NULL DEFAULT 0
 );
 
 CREATE TABLE IF NOT EXISTS inspection_products (

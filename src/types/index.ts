@@ -38,6 +38,12 @@ export interface ProductInspectionPoint {
   pointText: string;
 }
 
+export interface ReinspectionScope {
+  attrKeys: string[];
+  gipKeys: string[];
+  ipsByProduct: Record<string, number[]>;
+}
+
 export interface Inspection {
   id: string;
   date: string;
@@ -52,6 +58,9 @@ export interface Inspection {
   reportType?: 'normal' | 'nested';
   headerPhotoUri?: string;
   summary?: string;
+  parentInspectionId?: string;
+  reinspectionScope?: ReinspectionScope;
+  reinspectionDepth: number;
 }
 
 export interface InspectionProduct {

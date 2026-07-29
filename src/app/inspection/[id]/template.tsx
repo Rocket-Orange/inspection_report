@@ -22,7 +22,7 @@ import { useInspections } from '@/hooks/use-inspections';
 import { useTheme } from '@/hooks/use-theme';
 import { pickPhoto, takePhoto } from '@/services/photo-service';
 import { pickVideo, recordVideo } from '@/services/video-service';
-import type { ColumnConfig, GlobalInspectionPoint, Group, Inspection, InspectionPointConfig, Product, ProductInspectionPoint, Severity, ToleranceType } from '@/types';
+import type { ColumnConfig, GlobalInspectionPoint, Group, Inspection, InspectionPointConfig, Product, ProductInspectionPoint, ReinspectionScope, Severity, ToleranceType } from '@/types';
 import { chooseSource } from '@/utils/choose-source';
 
 interface AttributeItem {
@@ -90,9 +90,19 @@ interface ResultEntry {
 async function loadTemplateData(db: ReturnType<typeof useSQLiteContext>, inspectionId: string) {
   const inspRow = await db.getFirstAsync<{
     id: string; date: string; units_inspected: number; batch_size: number; status: string; summary: string | null;
+    reinspection_scope: string | null;
   }>('SELECT * FROM inspections WHERE id = ?', [inspectionId]);
 
   if (!inspRow) return null;
+
+  let scope: ReinspectionScope | null = null;
+  if (inspRow.reinspection_scope) {
+    try {
+      scope = JSON.parse(inspRow.reinspection_scope) as ReinspectionScope;
+    } catch {
+      scope = null;
+    }
+  }
 
   const productIdRows = await db.getAllAsync<{ product_id: string }>(
     'SELECT product_id FROM inspection_products WHERE inspection_id = ?',
@@ -109,11 +119,15 @@ async function loadTemplateData(db: ReturnType<typeof useSQLiteContext>, inspect
     if (p) products.push({ id: p.id, name: p.name, attributes: JSON.parse(p.attributes) });
   }
 
-  const colRows = await db.getAllAsync<{
-    key: string; label: string; is_numeric: number; tolerance_type: string | null;
-    tolerance_value: number | null; group_name: string | null; severity: string;
-    instructions: string | null; sort_order: number;
-  }>('SELECT * FROM column_configs WHERE visible = 1 ORDER BY sort_order');
+  const colFilter = scope ? ` AND key IN (${scope.attrKeys.map(() => '?').join(',') || 'NULL'})` : '';
+  const colParams = scope ? scope.attrKeys : [];
+  const colRows = scope && scope.attrKeys.length === 0
+    ? []
+    : await db.getAllAsync<{
+        key: string; label: string; is_numeric: number; tolerance_type: string | null;
+        tolerance_value: number | null; group_name: string | null; severity: string;
+        instructions: string | null; sort_order: number;
+      }>(`SELECT * FROM column_configs WHERE visible = 1${colFilter} ORDER BY sort_order`, colParams);
   const columns: ColumnConfig[] = colRows.map((r) => ({
     key: r.key,
     label: r.label,
@@ -131,11 +145,15 @@ async function loadTemplateData(db: ReturnType<typeof useSQLiteContext>, inspect
     sortOrder: r.sort_order,
   }));
 
-  const gipRows = await db.getAllAsync<{
-    key: string; label: string; is_numeric: number; tolerance_type: string | null;
-    tolerance_value: number | null; group_name: string | null; severity: string;
-    instructions: string | null; sort_order: number;
-  }>('SELECT * FROM global_inspection_points WHERE visible = 1 ORDER BY sort_order');
+  const gipFilter = scope ? ` AND key IN (${scope.gipKeys.map(() => '?').join(',') || 'NULL'})` : '';
+  const gipParams = scope ? scope.gipKeys : [];
+  const gipRows = scope && scope.gipKeys.length === 0
+    ? []
+    : await db.getAllAsync<{
+        key: string; label: string; is_numeric: number; tolerance_type: string | null;
+        tolerance_value: number | null; group_name: string | null; severity: string;
+        instructions: string | null; sort_order: number;
+      }>(`SELECT * FROM global_inspection_points WHERE visible = 1${gipFilter} ORDER BY sort_order`, gipParams);
   const globalInspectionPoints: GlobalInspectionPoint[] = gipRows.map((r) => ({
     key: r.key,
     label: r.label,
@@ -166,9 +184,15 @@ async function loadTemplateData(db: ReturnType<typeof useSQLiteContext>, inspect
 
   const pointsByProduct = new Map<string, ProductInspectionPoint[]>();
   for (const pid of productIds) {
+    const scopedIndices = scope ? (scope.ipsByProduct[pid] ?? []) : null;
+    if (scopedIndices && scopedIndices.length === 0) {
+      pointsByProduct.set(pid, []);
+      continue;
+    }
+    const ipFilter = scopedIndices ? ` AND point_index IN (${scopedIndices.map(() => '?').join(',')})` : '';
     const rows = await db.getAllAsync<{ point_index: number; point_text: string }>(
-      'SELECT point_index, point_text FROM product_inspection_points WHERE product_id = ? ORDER BY point_index',
-      [pid],
+      `SELECT point_index, point_text FROM product_inspection_points WHERE product_id = ?${ipFilter} ORDER BY point_index`,
+      scopedIndices ? [pid, ...scopedIndices] : [pid],
     );
     pointsByProduct.set(pid, rows.map((r) => ({ productId: pid, pointIndex: r.point_index, pointText: r.point_text })));
   }
@@ -210,6 +234,8 @@ async function loadTemplateData(db: ReturnType<typeof useSQLiteContext>, inspect
       batchSize: inspRow.batch_size,
       status: inspRow.status as Inspection['status'],
       summary: inspRow.summary ?? undefined,
+      reinspectionScope: scope ?? undefined,
+      reinspectionDepth: 0,
     },
     products,
     columns,
