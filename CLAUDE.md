@@ -94,7 +94,7 @@ src/
 
 ## Database
 
-SQLite file: `inspection.db` — single local database, no sync. **Current schema version: 8.**
+SQLite file: `inspection.db` — single local database, no sync. **Current schema version: 9.**
 
 **Tables:** `products`, `column_configs`, `inspection_point_configs`, `product_inspection_points`, `inspections`, `inspection_products`, `inspection_results`, `app_meta`, `groups`, `global_inspection_points`
 
@@ -128,6 +128,7 @@ Same schema as `column_configs` (key, label, visible, is_numeric, tolerance_type
 | `inspector_name` | Optional inspector name entered when starting inspection (added v6) |
 | `report_type` | `'normal'` (one PDF per product) or `'nested'` (one combined PDF, added v6) |
 | `header_photo_uri` | Optional local URI of a cover photo shown in the PDF header (set only in the New Inspection screen; added v8) |
+| `summary` | Optional free-text inspector-written summary of the whole inspection; edited on the template screen in a synthetic "Summary" section at the end; rendered in the PDF between the cover photo and the pass/fail stat row (added v9) |
 
 ### Key inspection_results fields
 | Column | Purpose |

@@ -66,6 +66,16 @@ async function headerPhotoBlock(uri: string | undefined): Promise<string> {
   }
 }
 
+function summaryBlock(summary: string | undefined): string {
+  const text = (summary ?? '').trim();
+  if (!text) return '';
+  const escaped = escapeHtml(text).replace(/\n/g, '<br/>');
+  return `<div style="background:#f0f4f8;border-left:4px solid #3c87f7;padding:12px 16px;margin:0 0 16px;border-radius:4px;">
+  <h3 style="margin:0 0 6px;font-size:14px;font-weight:bold;color:#1a5fa8;">Summary</h3>
+  <p style="margin:0;font-size:13px;color:#333;line-height:1.4;">${escaped}</p>
+</div>`;
+}
+
 function attrStatus(r: InspectionResult | undefined, isNumeric: boolean): 'pass' | 'fail' | 'na' {
   if (!r) return 'na';
   if (isNumeric) {
@@ -406,7 +416,7 @@ export async function generateProductReport(options: ReportOptions): Promise<str
 </div>
 
 ${headerImg}
-
+${summaryBlock(inspection.summary)}
 <div style="margin-bottom:16px;">
   <div class="stat"><span>${totalPassed}</span><br/>Passed</div>
   <div class="stat"><span style="color:#e74c3c">${totalFailed}</span><br/>Failed</div>
@@ -816,7 +826,7 @@ export async function generateNestedReport(options: NestedReportOptions): Promis
 </div>
 
 ${headerImg}
-
+${summaryBlock(inspection.summary)}
 <h2>Products Inspected</h2>
 <table>
   <tr><th>Product ID</th><th>Name</th><th>Units</th><th>Batch</th><th>Prod %</th><th>Pack %</th></tr>

@@ -51,6 +51,7 @@ export interface Inspection {
   inspectorName?: string;
   reportType?: 'normal' | 'nested';
   headerPhotoUri?: string;
+  summary?: string;
 }
 
 export interface InspectionProduct {

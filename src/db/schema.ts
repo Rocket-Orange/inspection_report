@@ -46,7 +46,8 @@ CREATE TABLE IF NOT EXISTS inspections (
   invoice_no TEXT,
   inspector_name TEXT,
   report_type TEXT NOT NULL DEFAULT 'normal',
-  header_photo_uri TEXT
+  header_photo_uri TEXT,
+  summary TEXT
 );
 
 CREATE TABLE IF NOT EXISTS inspection_products (

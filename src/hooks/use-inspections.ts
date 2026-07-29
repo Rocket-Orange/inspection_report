@@ -17,6 +17,7 @@ interface InspectionRow {
   inspector_name: string | null;
   report_type: string;
   header_photo_uri: string | null;
+  summary: string | null;
 }
 
 interface InspectionProductRow {
@@ -68,6 +69,7 @@ function mapRow(r: InspectionRow, productIds: string[]): Inspection {
     inspectorName: r.inspector_name ?? undefined,
     reportType: (r.report_type as 'normal' | 'nested') ?? 'normal',
     headerPhotoUri: r.header_photo_uri ?? undefined,
+    summary: r.summary ?? undefined,
   };
 }
 
@@ -224,6 +226,10 @@ export function useInspections() {
     );
   }
 
+  async function updateInspectionSummary(id: string, summary: string): Promise<void> {
+    await db.runAsync('UPDATE inspections SET summary = ? WHERE id = ?', [summary.length > 0 ? summary : null, id]);
+  }
+
   async function deleteInspection(id: string): Promise<void> {
     await db.withTransactionAsync(async () => {
       await db.runAsync('DELETE FROM inspection_results WHERE inspection_id = ?', [id]);
@@ -245,6 +251,7 @@ export function useInspections() {
     deleteResult,
     completeInspection,
     deleteInspection,
+    updateInspectionSummary,
   };
 }
 

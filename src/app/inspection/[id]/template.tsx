@@ -8,6 +8,7 @@ import {
   Pressable,
   SectionList,
   StyleSheet,
+  TextInput,
   View,
 } from 'react-native';
 
@@ -60,7 +61,15 @@ interface GroupHeaderItem {
   groupKey: string;
 }
 
-type SectionItem = AttributeItem | PointItem | GroupHeaderItem;
+interface SummaryItem {
+  kind: 'summary';
+  key: string;
+  productId: string;
+}
+
+type SectionItem = AttributeItem | PointItem | GroupHeaderItem | SummaryItem;
+
+const SUMMARY_SECTION_ID = '__summary__';
 
 interface Section {
   title: string;
@@ -80,7 +89,7 @@ interface ResultEntry {
 
 async function loadTemplateData(db: ReturnType<typeof useSQLiteContext>, inspectionId: string) {
   const inspRow = await db.getFirstAsync<{
-    id: string; date: string; units_inspected: number; batch_size: number; status: string;
+    id: string; date: string; units_inspected: number; batch_size: number; status: string; summary: string | null;
   }>('SELECT * FROM inspections WHERE id = ?', [inspectionId]);
 
   if (!inspRow) return null;
@@ -200,6 +209,7 @@ async function loadTemplateData(db: ReturnType<typeof useSQLiteContext>, inspect
       unitsInspected: inspRow.units_inspected,
       batchSize: inspRow.batch_size,
       status: inspRow.status as Inspection['status'],
+      summary: inspRow.summary ?? undefined,
     },
     products,
     columns,
@@ -216,7 +226,7 @@ export default function TemplateScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const theme = useTheme();
   const db = useSQLiteContext();
-  const { upsertResult, deleteResult } = useInspections();
+  const { upsertResult, deleteResult, updateInspectionSummary } = useInspections();
 
   const [loading, setLoading] = useState(true);
   const [inspection, setInspection] = useState<Inspection | null>(null);
@@ -236,6 +246,10 @@ export default function TemplateScreen() {
   const saveTimers = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
   const defaultSampleSizesRef = useRef<Map<string, string>>(new Map());
 
+  const [summary, setSummary] = useState<string>('');
+  const summaryRef = useRef<string>('');
+  const summarySaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
   const [, forceUpdate] = useState(0);
 
   useEffect(() => {
@@ -251,6 +265,9 @@ export default function TemplateScreen() {
       setInspection(data.inspection);
       resultsRef.current = new Map(data.existingResults);
       defaultSampleSizesRef.current = data.defaultSampleSizes;
+      const loadedSummary = data.inspection.summary ?? '';
+      summaryRef.current = loadedSummary;
+      setSummary(loadedSummary);
 
       const built: Section[] = [];
       let photoNum = 1;
@@ -391,6 +408,12 @@ export default function TemplateScreen() {
         built.push({ title: product.name, productId: product.id, data: items });
       }
 
+      built.push({
+        title: 'Summary',
+        productId: SUMMARY_SECTION_ID,
+        data: [{ kind: 'summary', key: `${SUMMARY_SECTION_ID}:input`, productId: SUMMARY_SECTION_ID }],
+      });
+
       photoCounterRef.current = photoNum;
       setSections(built);
       setTotalItems(total);
@@ -457,6 +480,22 @@ export default function TemplateScreen() {
       }
     }
     if (pendingKeys.length > 0) setFilledCount(resultsRef.current.size);
+
+    if (summarySaveTimer.current) {
+      clearTimeout(summarySaveTimer.current);
+      summarySaveTimer.current = null;
+      await updateInspectionSummary(id, summaryRef.current);
+    }
+  }
+
+  function handleSummaryChange(text: string) {
+    setSummary(text);
+    summaryRef.current = text;
+    if (summarySaveTimer.current) clearTimeout(summarySaveTimer.current);
+    summarySaveTimer.current = setTimeout(async () => {
+      summarySaveTimer.current = null;
+      await updateInspectionSummary(id, text);
+    }, 400);
   }
 
   function scheduleSave(productId: string, pointKey: string, entry: ResultEntry, immediate = false) {
@@ -573,6 +612,29 @@ export default function TemplateScreen() {
   const renderItem = useCallback(({ item }: { item: SectionItem }) => {
     if (collapsedProducts.has(item.productId)) return null;
 
+    if (item.kind === 'summary') {
+      return (
+        <View style={styles.summaryContainer}>
+          <TextInput
+            style={[
+              styles.summaryInput,
+              {
+                color: theme.text,
+                backgroundColor: theme.backgroundElement,
+                borderColor: theme.textSecondary,
+              },
+            ]}
+            value={summary}
+            onChangeText={handleSummaryChange}
+            placeholder="Overall summary of this inspection…"
+            placeholderTextColor={theme.textSecondary}
+            multiline
+            textAlignVertical="top"
+          />
+        </View>
+      );
+    }
+
     if (item.kind === 'group-header') {
       const isCollapsed = collapsedGroups.has(item.groupKey);
       return (
@@ -663,7 +725,7 @@ export default function TemplateScreen() {
         onRemoveVideo={(uri) => handleRemoveVideo(item.productId, item.pointKey, uri)}
       />
     );
-  }, [theme, collapsedProducts, collapsedGroups]);
+  }, [theme, collapsedProducts, collapsedGroups, summary]);
 
   if (loading) {
     return (
@@ -804,5 +866,18 @@ const styles = StyleSheet.create({
   groupChevron: {
     fontSize: 11,
     color: '#888',
+  },
+  summaryContainer: {
+    paddingHorizontal: Spacing.three,
+    paddingVertical: Spacing.two,
+  },
+  summaryInput: {
+    minHeight: 120,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderRadius: 6,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+    fontSize: 14,
+    lineHeight: 20,
   },
 });
