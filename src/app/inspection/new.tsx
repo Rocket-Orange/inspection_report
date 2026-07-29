@@ -1,6 +1,7 @@
 import { router } from 'expo-router';
 import React, { useState } from 'react';
 import {
+  Alert,
   FlatList,
   Image,
   Keyboard,
@@ -154,6 +155,8 @@ export default function NewInspectionScreen() {
         productUnits: units,
       });
       router.replace({ pathname: '/inspection/[id]/template', params: { id } });
+    } catch (err) {
+      Alert.alert('Failed to start inspection', String(err));
     } finally {
       setStarting(false);
     }
