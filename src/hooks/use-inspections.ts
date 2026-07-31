@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 
 import { useSQLiteContext } from '@/db';
-import { deleteInspectionPhotos, saveHeaderPhoto } from '@/services/photo-service';
+import { deleteInspectionPhotos, deleteMediaFile, saveHeaderPhoto } from '@/services/photo-service';
 import type { Inspection, InspectionProduct, InspectionResult, InspectionStatus, PointType, ReinspectionScope, Severity } from '@/types';
 import { buildInspectionTitle } from '@/utils/inspection-title';
 
@@ -48,6 +48,16 @@ interface ResultRow {
 
 function generateId(): string {
   return Date.now().toString(36) + Math.random().toString(36).slice(2);
+}
+
+function safeParseUriArray(json: string | null | undefined): string[] {
+  if (!json) return [];
+  try {
+    const parsed = JSON.parse(json);
+    return Array.isArray(parsed) ? parsed.filter((v): v is string => typeof v === 'string') : [];
+  } catch {
+    return [];
+  }
 }
 
 async function loadProductIds(db: ReturnType<typeof useSQLiteContext>, inspectionId: string): Promise<string[]> {
@@ -262,6 +272,14 @@ export function useInspections() {
   }
 
   async function deleteResult(inspectionId: string, productId: string, pointKey: string): Promise<void> {
+    const row = await db.getFirstAsync<{ photo_uris: string; video_uris: string }>(
+      'SELECT photo_uris, video_uris FROM inspection_results WHERE inspection_id = ? AND product_id = ? AND point_key = ?',
+      [inspectionId, productId, pointKey],
+    );
+    if (row) {
+      const uris = [...safeParseUriArray(row.photo_uris), ...safeParseUriArray(row.video_uris)];
+      for (const uri of uris) deleteMediaFile(uri);
+    }
     await db.runAsync(
       'DELETE FROM inspection_results WHERE inspection_id = ? AND product_id = ? AND point_key = ?',
       [inspectionId, productId, pointKey],

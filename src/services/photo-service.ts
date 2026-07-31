@@ -92,6 +92,15 @@ export function deleteInspectionPhotos(inspectionId: string): void {
   }
 }
 
+export function deleteMediaFile(uri: string): void {
+  try {
+    const file = new File(uri);
+    if (file.exists) file.delete();
+  } catch {
+    // Best effort — a missing file or unsupported URI scheme should never block the caller.
+  }
+}
+
 export async function photoToBase64(uri: string): Promise<string> {
   const result = await ImageManipulator.manipulateAsync(
     uri,

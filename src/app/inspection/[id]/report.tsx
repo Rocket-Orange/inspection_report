@@ -28,25 +28,49 @@ async function shareBundle(pdfUri: string, videoUris: string[]): Promise<void> {
   const pdfFilename = pdfUri.split('/').pop() ?? 'report.pdf';
   const baseName = pdfFilename.replace(/\.pdf$/i, '');
 
-  zip.file(`${baseName}.pdf`, await new File(pdfUri).bytes());
-
-  for (let i = 0; i < videoUris.length; i++) {
-    const uri = videoUris[i];
-    const ext = uri.split('.').pop()?.toLowerCase() ?? 'mp4';
-    zip.file(`video_${i + 1}_${baseName}.${ext}`, await new File(uri).bytes());
-  }
-
-  const zipBytes = await zip.generateAsync({ type: 'uint8array' });
-
   const zipUri = Paths.document.uri + baseName + '.zip';
   const zipFile = new File(zipUri);
-  if (zipFile.exists) zipFile.delete();
-  zipFile.create();
-  const handle = zipFile.open();
-  handle.writeBytes(zipBytes);
-  handle.close();
 
-  await Sharing.shareAsync(zipUri, { mimeType: 'application/zip' });
+  try {
+    const pdfFile = new File(pdfUri);
+    if (!pdfFile.exists) throw new Error(`PDF is missing on disk: ${pdfUri}`);
+    zip.file(`${baseName}.pdf`, await pdfFile.bytes());
+
+    const skipped: string[] = [];
+    let videoIdx = 0;
+    for (const uri of videoUris) {
+      const videoFile = new File(uri);
+      if (!videoFile.exists) {
+        skipped.push(uri.split('/').pop() ?? uri);
+        continue;
+      }
+      videoIdx += 1;
+      const ext = uri.split('.').pop()?.toLowerCase() ?? 'mp4';
+      zip.file(`video_${videoIdx}_${baseName}.${ext}`, await videoFile.bytes());
+    }
+
+    const zipBytes = await zip.generateAsync({ type: 'uint8array' });
+
+    if (zipFile.exists) zipFile.delete();
+    zipFile.create();
+    const handle = zipFile.open();
+    handle.writeBytes(zipBytes);
+    handle.close();
+
+    if (skipped.length > 0) {
+      Alert.alert(
+        'Some videos were skipped',
+        `${skipped.length} video file(s) were missing on disk and were not included:\n\n${skipped.join('\n')}`,
+      );
+    }
+
+    await Sharing.shareAsync(zipUri, { mimeType: 'application/zip' });
+  } catch (err) {
+    if (zipFile.exists) {
+      try { zipFile.delete(); } catch { /* best effort */ }
+    }
+    throw err;
+  }
 }
 
 export default function ReportScreen() {
@@ -195,7 +219,7 @@ export default function ReportScreen() {
       const allResultRows = await db.getAllAsync<{
         id: string; inspection_id: string; product_id: string; point_key: string; type: string;
         value: string | null; passed: number; note: string | null; photo_uris: string;
-        video_uris: string; sample_size: string | null;
+        video_uris: string; sample_size: string | null; severity_override: string | null;
       }>('SELECT * FROM inspection_results WHERE inspection_id = ?', [id]);
 
       if (inspection.reportType === 'nested') {
@@ -248,6 +272,7 @@ export default function ReportScreen() {
             type: r.type as PointType, value: r.value ?? undefined, passed: r.passed === 1,
             note: r.note ?? undefined, photoUris: JSON.parse(r.photo_uris || '[]'), videoUris,
             sampleSize: r.sample_size ?? undefined,
+            severityOverride: (r.severity_override as Severity | null) ?? undefined,
           };
         });
 
@@ -317,6 +342,7 @@ export default function ReportScreen() {
           photoUris: JSON.parse(r.photo_uris || '[]'),
           videoUris,
           sampleSize: r.sample_size ?? undefined,
+          severityOverride: (r.severity_override as Severity | null) ?? undefined,
         };
       });
 

@@ -299,12 +299,12 @@ export function useSettings() {
           );
         }
 
-        // Upsert column configs (preserve user visibility/tolerance/severity/group settings)
+        // Upsert column configs (preserve user visibility/tolerance/severity/group/is_numeric settings)
         for (const col of data.columnMeta) {
           await db.runAsync(
             `INSERT INTO column_configs (key, label, visible, is_numeric, sort_order)
              VALUES (?, ?, 1, ?, ?)
-             ON CONFLICT(key) DO UPDATE SET label = excluded.label, is_numeric = excluded.is_numeric, sort_order = excluded.sort_order`,
+             ON CONFLICT(key) DO UPDATE SET label = excluded.label, sort_order = excluded.sort_order`,
             [col.key, col.label, col.isNumeric ? 1 : 0, col.sortOrder],
           );
         }

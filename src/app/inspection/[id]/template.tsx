@@ -2,6 +2,7 @@ import { router, useLocalSearchParams } from 'expo-router';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
+  Alert,
   Keyboard,
   KeyboardAvoidingView,
   Platform,
@@ -20,7 +21,7 @@ import { BottomTabInset, Spacing } from '@/constants/theme';
 import { useSQLiteContext } from '@/db';
 import { useInspections } from '@/hooks/use-inspections';
 import { useTheme } from '@/hooks/use-theme';
-import { pickPhoto, takePhoto } from '@/services/photo-service';
+import { deleteMediaFile, pickPhoto, takePhoto } from '@/services/photo-service';
 import { pickVideo, recordVideo } from '@/services/video-service';
 import type { ColumnConfig, GlobalInspectionPoint, Group, Inspection, InspectionPointConfig, Product, ProductInspectionPoint, ReinspectionScope, Severity, ToleranceType } from '@/types';
 import { chooseSource } from '@/utils/choose-source';
@@ -514,6 +515,19 @@ export default function TemplateScreen() {
     }
   }
 
+  async function safeFlushThen(navigate: () => void): Promise<void> {
+    try {
+      await flushPendingSaves();
+    } catch (err) {
+      Alert.alert(
+        'Failed to save',
+        `Your latest edits could not be saved: ${String(err)}. Please try again.`,
+      );
+      return;
+    }
+    navigate();
+  }
+
   function handleSummaryChange(text: string) {
     setSummary(text);
     summaryRef.current = text;
@@ -572,7 +586,13 @@ export default function TemplateScreen() {
     const entry = getEntry(productId, pointKey);
     const source = await chooseSource('Add photo', 'Take photo', 'Choose from gallery');
     if (!source) return;
-    const uri = await (source === 'camera' ? takePhoto(id, pointKey) : pickPhoto(id, pointKey));
+    let uri: string | null;
+    try {
+      uri = await (source === 'camera' ? takePhoto(id, pointKey) : pickPhoto(id, pointKey));
+    } catch (err) {
+      Alert.alert('Failed to add photo', String(err));
+      return;
+    }
     if (!uri) return;
     const updated: ResultEntry = { ...entry, photoUris: [...entry.photoUris, uri] };
     scheduleSave(productId, pointKey, updated, true);
@@ -590,6 +610,7 @@ export default function TemplateScreen() {
     const entry = getEntry(productId, pointKey);
     const updated: ResultEntry = { ...entry, photoUris: entry.photoUris.filter((u) => u !== uri) };
     scheduleSave(productId, pointKey, updated, true);
+    deleteMediaFile(uri);
     forceUpdate((n) => n + 1);
   }
 
@@ -598,7 +619,13 @@ export default function TemplateScreen() {
     const entry = getEntry(productId, pointKey);
     const source = await chooseSource('Add video', 'Record video', 'Choose from gallery');
     if (!source) return;
-    const uri = await (source === 'camera' ? recordVideo(id, pointKey) : pickVideo(id, pointKey));
+    let uri: string | null;
+    try {
+      uri = await (source === 'camera' ? recordVideo(id, pointKey) : pickVideo(id, pointKey));
+    } catch (err) {
+      Alert.alert('Failed to add video', String(err));
+      return;
+    }
     if (!uri) return;
     const updated: ResultEntry = { ...entry, videoUris: [...entry.videoUris, uri] };
     scheduleSave(productId, pointKey, updated, true);
@@ -616,6 +643,7 @@ export default function TemplateScreen() {
     const entry = getEntry(productId, pointKey);
     const updated: ResultEntry = { ...entry, videoUris: entry.videoUris.filter((u) => u !== uri) };
     scheduleSave(productId, pointKey, updated, true);
+    deleteMediaFile(uri);
     forceUpdate((n) => n + 1);
   }
 
@@ -773,7 +801,7 @@ export default function TemplateScreen() {
     <ThemedView style={styles.container}>
       <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
       <View style={[styles.header, { borderBottomColor: theme.backgroundElement }]}>
-        <Pressable onPress={async () => { await flushPendingSaves(); router.back(); }} hitSlop={12}>
+        <Pressable onPress={() => safeFlushThen(() => router.back())} hitSlop={12}>
           <ThemedText style={styles.backBtn}>← Back</ThemedText>
         </Pressable>
         <View style={styles.headerCenter}>
@@ -786,11 +814,11 @@ export default function TemplateScreen() {
         </View>
         <View style={styles.headerRight}>
           <Pressable
-            onPress={async () => { await flushPendingSaves(); router.push({ pathname: '/inspection/[id]/review', params: { id } }); }}
+            onPress={() => safeFlushThen(() => router.push({ pathname: '/inspection/[id]/review', params: { id } }))}
             style={styles.reviewBtn}>
             <ThemedText style={styles.reviewBtnText}>Review →</ThemedText>
           </Pressable>
-          <Pressable onPress={async () => { await flushPendingSaves(); router.replace('/(tabs)/' as any); }} hitSlop={12}>
+          <Pressable onPress={() => safeFlushThen(() => router.replace('/(tabs)/' as any))} hitSlop={12}>
             <ThemedText style={styles.homeBtnText}>⌂</ThemedText>
           </Pressable>
         </View>
